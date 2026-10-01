@@ -28,5 +28,19 @@ npm run dev:app
 npm run build:app
 ```
 
+## 后端开发
+- 初始化 python 环境
+```commandline
+pdm init --python /opt/miniforge3/envs/py312/bin/python
+```
+- 宝塔上面为服务器新建一个数据库
+- 先在本地为刚刚的线上数据库创建表
+```commandline
+pdm run alembic upgrade head
+```
+- 本地启动，浅浅测试一下
+```bash
+pdm run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 ## 其它
 - svg to png 的[免费网页](https://svgtopng.com/)

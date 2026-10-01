@@ -1,0 +1,15 @@
+[project]
+name = "someleaf"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "zhangli", email = "2693175110@qq.com"},
+]
+dependencies = ["fastapi<1.0,>=0.115", "uvicorn[standard]<1.0,>=0.34", "SQLAlchemy<3.0,>=2.0", "alembic<2.0,>=1.14", "PyMySQL<2.0,>=1.1", "pydantic-settings<3.0,>=2.7", "pwdlib[argon2]<1.0,>=0.2", "PyJWT<3.0,>=2.10"]
+requires-python = "==3.12.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+
+[tool.pdm]
+distribution = false

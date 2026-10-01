@@ -1,4 +1,10 @@
 .DS_Store
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
 .hbuilderx/
 frontend/node_modules/
 frontend/dist/
