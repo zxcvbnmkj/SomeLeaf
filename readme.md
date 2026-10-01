@@ -24,4 +24,9 @@ npm run dev:h5
 npm run build:h5
 // 本地启动 APP
 npm run dev:app
+// 仅用于测试打包是否能编译通过，使用 DCloud 打包会自动执行它，不必先手动执行一次
+npm run build:app
 ```
+
+## 其它
+- svg to png 的[免费网页](https://svgtopng.com/)

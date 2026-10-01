@@ -134,10 +134,10 @@
 	const formattedPageContent = computed(() => currentPage.value.content)
 
 	function splitByKeyword(text, keyword) {
-		if (!keyword) return [{
-			text,
-			:
-		}]
+	if (!keyword) return [{
+		text,
+		highlighted: false
+	}]
 
 		const segments = []
 		const normalizedText = text.toLocaleLowerCase()

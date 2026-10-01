@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">SomeLeaf 三叶应用图标</title>
+  <desc id="desc">一本打开的书中长出三片叶子</desc>
+
+  <rect width="1024" height="1024" fill="#244C3D"/>
+  <rect x="48" y="48" width="928" height="928" rx="218" fill="none" stroke="#3A624F" stroke-width="16"/>
+
+  <path d="M512 660C505 576 506 498 512 424" fill="none" stroke="#D9B463" stroke-width="22" stroke-linecap="round"/>
+  <path d="M506 545C454 510 410 470 371 421" fill="none" stroke="#D9B463" stroke-width="15" stroke-linecap="round"/>
+  <path d="M515 532C570 497 616 454 653 408" fill="none" stroke="#D9B463" stroke-width="15" stroke-linecap="round"/>
+
+  <path d="M493 454C374 465 276 393 258 270C382 245 482 326 493 454Z" fill="#8FC89A"/>
+  <path d="M531 443C650 451 746 375 759 251C634 231 538 316 531 443Z" fill="#6EAF7B"/>
+  <path d="M512 424C427 348 425 222 512 135C599 222 597 348 512 424Z" fill="#E5C36F"/>
+
+  <path d="M282 300C351 338 414 388 473 442" fill="none" stroke="#D5E8D8" stroke-width="12" stroke-linecap="round" opacity="0.72"/>
+  <path d="M738 281C668 325 605 375 550 431" fill="none" stroke="#B9D9C0" stroke-width="12" stroke-linecap="round" opacity="0.72"/>
+  <path d="M512 173V396" fill="none" stroke="#F3D992" stroke-width="12" stroke-linecap="round" opacity="0.82"/>
+
+  <path d="M149 657C276 583 394 583 512 656V846C394 774 276 774 149 836V657Z" fill="#F3F5EF"/>
+  <path d="M875 657C748 583 630 583 512 656V846C630 774 748 774 875 836V657Z" fill="#FFFFFF"/>
+  <path d="M149 657C276 583 394 583 512 656C630 583 748 583 875 657" fill="none" stroke="#D9B463" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M512 656V846" fill="none" stroke="#D7DDD5" stroke-width="12" stroke-linecap="round"/>
+
+  <path d="M218 700C314 664 397 672 468 709" fill="none" stroke="#C4CEC6" stroke-width="13" stroke-linecap="round"/>
+  <path d="M556 709C627 672 710 664 806 700" fill="none" stroke="#C4CEC6" stroke-width="13" stroke-linecap="round"/>
+  <path d="M218 750C314 714 397 722 468 759" fill="none" stroke="#D3DAD3" stroke-width="13" stroke-linecap="round"/>
+  <path d="M556 759C627 722 710 714 806 750" fill="none" stroke="#D3DAD3" stroke-width="13" stroke-linecap="round"/>
+</svg>
