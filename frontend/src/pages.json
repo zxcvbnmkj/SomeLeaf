@@ -1,0 +1,23 @@
+{
+  "pages": [
+    {
+      "path": "pages/bookshelf/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "SomeLeaf"
+      }
+    },
+    {
+      "path": "pages/profile/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "我的"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#F3F5F2",
+    "backgroundColor": "#F3F5F2"
+  }
+}

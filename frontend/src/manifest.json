@@ -1,0 +1,24 @@
+{
+  "name": "SomeLeaf",
+  "appid": "",
+  "description": "三叶，一款轻量级多平台阅读软件",
+  "versionName": "0.1.0",
+  "versionCode": "10",
+  "transformPx": false,
+  "vueVersion": "3",
+  "app-plus": {
+    "usingComponents": true,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "distribute": {
+      "orientation": ["portrait-primary"]
+    }
+  },
+  "h5": {
+    "title": "SomeLeaf - 三叶"
+  }
+}
