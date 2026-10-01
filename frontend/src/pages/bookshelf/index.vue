@@ -14,7 +14,6 @@
         </view>
       </view>
 
-      <view class="avatar" aria-hidden="true">叶</view>
     </view>
 
     <view class="content">
@@ -26,8 +25,8 @@
         <button
           class="add-button"
           :disabled="isImporting"
-          aria-label="导入 TXT"
-          @click="handleImport"
+          aria-label="添加图书"
+          @click="handleAdd"
         >+</button>
       </view>
 
@@ -53,7 +52,12 @@
               <view class="card-leaf-right" />
               <view class="card-stem" />
             </view>
-            <text class="file-type">TXT</text>
+            <view class="card-labels">
+              <text v-if="book.sharing" class="sharing-label">
+                {{ book.sharing.status === 'closed' ? '已关闭' : `${book.sharing.memberCount || 1} 人共读` }}
+              </text>
+              <text class="file-type">TXT</text>
+            </view>
           </view>
 
           <text class="book-title">{{ book.title }}</text>
@@ -128,11 +132,20 @@
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { pickTextFile } from '@/services/file-picker'
+import { ApiError, getAccessToken } from '@/services/auth'
 import {
   deleteBook,
   listBooks,
-  saveImportedBook
+  readBookContent,
+  saveImportedBook,
+  saveJoinedBook,
+  updateBookSharing
 } from '@/services/book-storage'
+import {
+  createReadingRoom,
+  joinReadingRoom
+} from '@/services/reading-rooms'
+import { syncLocalReadingToRoom } from '@/services/reading-sync'
 
 const books = ref([])
 const isImporting = ref(false)
@@ -165,11 +178,20 @@ function showBookActions(book) {
 
   suppressNextTap = true
 
+  const actions = book.sharing
+    ? ['查看共读信息', '删除本地图书']
+    : ['开启好友共读', '删除图书']
+
   uni.showActionSheet({
-    itemList: ['删除图书'],
-    itemColor: '#A4473D',
+    itemList: actions,
     success: ({ tapIndex }) => {
-      if (tapIndex === 0) confirmDelete(book)
+      if (tapIndex === 0 && book.sharing) {
+        openRoom(book)
+      } else if (tapIndex === 0) {
+        startSharing(book)
+      } else if (tapIndex === 1) {
+        confirmDelete(book)
+      }
     },
     complete: () => {
       setTimeout(() => {
@@ -177,6 +199,146 @@ function showBookActions(book) {
       }, 300)
     }
   })
+}
+
+function requireLogin() {
+  if (getAccessToken()) return true
+
+  uni.showModal({
+    title: '需要登录',
+    content: '好友共读需要一个账户来标记成员身份。',
+    confirmText: '去登录',
+    success: ({ confirm }) => {
+      if (confirm) {
+        uni.redirectTo({ url: '/pages/profile/index' })
+      }
+    }
+  })
+  return false
+}
+
+function openRoom(book) {
+  if (!requireLogin()) return
+  uni.navigateTo({
+    url: `/pages/room/index?id=${book.sharing.roomId}&bookId=${book.id}`
+  })
+}
+
+function startSharing(book) {
+  if (!requireLogin() || isImporting.value) return
+
+  uni.showModal({
+    title: '开启好友共读',
+    content: '开启后，TXT 文件以及这本书已有的本地评论和笔记都会上传云端，并对共读成员可见。是否继续？',
+    confirmText: '开启共读',
+    confirmColor: '#2F6B4F',
+    success: ({ confirm }) => {
+      if (confirm) performStartSharing(book)
+    }
+  })
+}
+
+async function performStartSharing(book) {
+  if (isImporting.value) return
+
+  isImporting.value = true
+  uni.showLoading({ title: '正在开启共读', mask: true })
+  try {
+    const content = await readBookContent(book)
+    const room = await createReadingRoom(book, content)
+    updateBookSharing(book.id, room)
+    const migration = await syncLocalReadingToRoom(book.id, room.id)
+    refreshBookshelf()
+    uni.hideLoading()
+    const migrationText = migration.uploaded
+      ? `\n已将 ${migration.uploaded} 条本地评论或笔记上传云端。`
+      : ''
+    const retryText = migration.failed
+      ? `\n另有 ${migration.failed} 条暂未上传，已保留在本机，稍后打开图书时会自动重试。`
+      : ''
+    uni.showModal({
+      title: '共读已开启',
+      content: `邀请码：${room.invite_code}${migrationText}${retryText}`,
+      confirmText: '查看房间',
+      success: ({ confirm }) => {
+        if (confirm) openRoom({ ...book, sharing: { roomId: room.id } })
+      }
+    })
+  } catch (error) {
+    uni.showToast({
+      title: error instanceof ApiError ? error.message : (error.message || '开启共读失败'),
+      icon: 'none',
+      duration: 2800
+    })
+  } finally {
+    uni.hideLoading()
+    isImporting.value = false
+  }
+}
+
+function handleAdd() {
+  if (isImporting.value) return
+
+  uni.showActionSheet({
+    itemList: ['从本地导入 TXT', '通过邀请码加入共读'],
+    success: ({ tapIndex }) => {
+      if (tapIndex === 0) {
+        handleImport()
+      } else if (tapIndex === 1) {
+        promptInviteCode()
+      }
+    }
+  })
+}
+
+function promptInviteCode() {
+  if (!requireLogin()) return
+
+  uni.showModal({
+    title: '加入好友共读',
+    editable: true,
+    placeholderText: '请输入 6 位邀请码',
+    confirmText: '加入',
+    success: ({ confirm, content }) => {
+      if (!confirm) return
+      const inviteCode = String(content || '').trim()
+      if (!/^\d{6}$/.test(inviteCode)) {
+        uni.showToast({ title: '请输入 6 位数字邀请码', icon: 'none' })
+        return
+      }
+      joinByInviteCode(inviteCode)
+    }
+  })
+}
+
+async function joinByInviteCode(inviteCode) {
+  if (isImporting.value) return
+
+  isImporting.value = true
+  uni.showLoading({ title: '正在加入', mask: true })
+  try {
+    const result = await joinReadingRoom(inviteCode)
+    const book = await saveJoinedBook(result)
+    refreshBookshelf()
+    uni.hideLoading()
+    uni.showModal({
+      title: '已加入共读',
+      content: `《${book.title}》已保存到本地书架。`,
+      confirmText: '开始阅读',
+      success: ({ confirm }) => {
+        if (confirm) openBook(book.id)
+      }
+    })
+  } catch (error) {
+    uni.showToast({
+      title: error instanceof ApiError ? error.message : (error.message || '加入共读失败'),
+      icon: 'none',
+      duration: 2800
+    })
+  } finally {
+    uni.hideLoading()
+    isImporting.value = false
+  }
 }
 
 function confirmDelete(book) {
@@ -316,19 +478,6 @@ onShow(refreshBookshelf)
 .brand-cn {
   color: #7c8a82;
   font-size: 24rpx;
-}
-
-.avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64rpx;
-  height: 64rpx;
-  color: #ffffff;
-  background: #d5a95b;
-  border-radius: 50%;
-  font-size: 25rpx;
-  font-weight: 600;
 }
 
 .content {
@@ -483,6 +632,26 @@ onShow(refreshBookshelf)
   color: #79877f;
   font-size: 19rpx;
   font-weight: 600;
+}
+
+.card-labels {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10rpx;
+}
+
+.sharing-label {
+  overflow: hidden;
+  max-width: 120rpx;
+  padding: 5rpx 9rpx;
+  color: #2f6b4f;
+  background: #e8f1eb;
+  border-radius: 5rpx;
+  font-size: 18rpx;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .book-title {

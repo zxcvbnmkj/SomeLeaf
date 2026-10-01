@@ -15,24 +15,115 @@
     </view>
 
     <view class="content">
-      <view class="profile">
-        <view class="avatar">叶</view>
+      <view v-if="currentUser" class="profile">
+        <view class="avatar">{{ avatarText }}</view>
         <view class="profile-copy">
-          <text class="profile-name">三叶读者</text>
+          <text class="profile-name">{{ currentUser.username }}</text>
           <text class="profile-note">愿每次翻页都有新的发现</text>
         </view>
       </view>
 
-      <view class="section">
+      <view v-if="currentUser" class="section">
         <view class="setting-row">
-          <text class="setting-name">阅读偏好</text>
-          <text class="setting-value">默认</text>
+          <text class="setting-name">账户</text>
+          <text class="setting-value">{{ currentUser.username }}</text>
         </view>
         <view class="divider" />
-        <view class="setting-row">
-          <text class="setting-name">关于三叶</text>
-          <text class="setting-value">v0.1.0</text>
+        <navigator class="setting-link" url="/pages/about/index">
+          <view class="setting-row">
+            <text class="setting-name">关于三叶</text>
+            <view class="setting-tail">
+              <text class="setting-value">v0.1.0</text>
+              <view class="setting-arrow" aria-hidden="true" />
+            </view>
+          </view>
+        </navigator>
+        <view class="divider" />
+        <navigator class="setting-link" url="/pages/feedback/index">
+          <view class="setting-row">
+            <text class="setting-name">意见反馈</text>
+            <view class="setting-arrow" aria-hidden="true" />
+          </view>
+        </navigator>
+      </view>
+
+      <button
+        v-if="currentUser"
+        class="logout-button"
+        :disabled="isSubmitting"
+        @click="handleLogout"
+      >退出登录</button>
+
+      <view v-else class="auth-area">
+        <view class="auth-heading">
+          <view class="avatar auth-avatar">叶</view>
+          <view class="profile-copy">
+            <text class="profile-name">{{ isRegisterMode ? '创建账户' : '欢迎回来' }}</text>
+            <text class="profile-note">{{ isRegisterMode ? '注册后即可开始好友共读' : '登录你的三叶账户' }}</text>
+          </view>
         </view>
+
+        <view class="mode-switch">
+          <view
+            class="mode-option"
+            :class="{ 'mode-option-active': !isRegisterMode }"
+            @click="setMode(false)"
+          >登录</view>
+          <view
+            class="mode-option"
+            :class="{ 'mode-option-active': isRegisterMode }"
+            @click="setMode(true)"
+          >注册</view>
+        </view>
+
+        <view class="auth-form">
+          <label class="field">
+            <text class="field-label">用户名</text>
+            <input
+              v-model="username"
+              class="field-input"
+              type="text"
+              maxlength="24"
+              placeholder="3-24 个字符"
+              placeholder-class="field-placeholder"
+              :disabled="isSubmitting"
+              @confirm="handleSubmit"
+            />
+          </label>
+
+          <label class="field">
+            <text class="field-label">密码</text>
+            <input
+              v-model="password"
+              class="field-input"
+              type="text"
+              :password="true"
+              maxlength="128"
+              placeholder="至少 8 个字符"
+              placeholder-class="field-placeholder"
+              :disabled="isSubmitting"
+              @confirm="handleSubmit"
+            />
+          </label>
+
+          <text v-if="formError" class="form-error">{{ formError }}</text>
+
+          <button
+            class="submit-button"
+            :loading="isSubmitting"
+            :disabled="isSubmitting"
+            @click="handleSubmit"
+          >{{ isRegisterMode ? '注册并登录' : '登录' }}</button>
+        </view>
+      </view>
+
+      <view v-if="!currentUser" class="section feedback-section">
+        <navigator class="setting-link" url="/pages/feedback/index">
+          <view class="setting-row">
+            <text class="setting-name">意见反馈</text>
+            <view class="setting-arrow" aria-hidden="true" />
+          </view>
+        </navigator>
       </view>
     </view>
 
@@ -62,6 +153,104 @@
 </template>
 
 <script setup>
+import { computed, ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import {
+  ApiError,
+  clearSession,
+  getAccessToken,
+  getCurrentUser,
+  getStoredUser,
+  login,
+  register
+} from '@/services/auth'
+
+const currentUser = ref(getStoredUser())
+const isRegisterMode = ref(true)
+const isSubmitting = ref(false)
+const username = ref('')
+const password = ref('')
+const formError = ref('')
+
+const avatarText = computed(() => {
+  const name = currentUser.value?.username?.trim()
+  return name ? name.slice(0, 1).toUpperCase() : '叶'
+})
+
+function setMode(registerMode) {
+  if (isSubmitting.value) return
+  isRegisterMode.value = registerMode
+  formError.value = ''
+}
+
+function validateForm() {
+  const normalizedUsername = username.value.trim()
+
+  if (normalizedUsername.length < 3 || normalizedUsername.length > 24) {
+    return '用户名长度必须为 3 到 24 个字符'
+  }
+  if (password.value.length < 8 || password.value.length > 128) {
+    return '密码长度必须为 8 到 128 个字符'
+  }
+  return ''
+}
+
+async function handleSubmit() {
+  if (isSubmitting.value) return
+
+  formError.value = validateForm()
+  if (formError.value) return
+
+  isSubmitting.value = true
+  try {
+    const submit = isRegisterMode.value ? register : login
+    currentUser.value = await submit(username.value.trim(), password.value)
+    password.value = ''
+    uni.showToast({
+      title: isRegisterMode.value ? '注册成功' : '登录成功',
+      icon: 'success'
+    })
+  } catch (error) {
+    formError.value = error instanceof ApiError
+      ? error.message
+      : '操作失败，请稍后重试'
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+function handleLogout() {
+  uni.showModal({
+    title: '退出登录',
+    content: '本地导入的图书不会受到影响。',
+    confirmText: '退出',
+    confirmColor: '#A4473D',
+    success: ({ confirm }) => {
+      if (!confirm) return
+      clearSession()
+      currentUser.value = null
+      username.value = ''
+      password.value = ''
+      formError.value = ''
+    }
+  })
+}
+
+onShow(async () => {
+  if (!getAccessToken()) {
+    currentUser.value = null
+    return
+  }
+
+  try {
+    currentUser.value = await getCurrentUser()
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 401) {
+      clearSession()
+      currentUser.value = null
+    }
+  }
+})
 </script>
 
 <style scoped>
@@ -146,6 +335,21 @@
   padding: 48rpx 40rpx;
 }
 
+.auth-area {
+  padding-top: 16rpx;
+}
+
+.auth-heading {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+  padding: 20rpx 0 40rpx;
+}
+
+.auth-avatar {
+  background: #3f805e;
+}
+
 .profile {
   display: flex;
   align-items: center;
@@ -200,12 +404,24 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   min-height: 98rpx;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.setting-link {
+  display: block;
+  width: 100%;
+  text-align: left;
 }
 
 .setting-name {
+  display: block;
+  flex: 1;
   color: #263c31;
   font-size: 27rpx;
+  text-align: left;
 }
 
 .setting-value {
@@ -213,9 +429,128 @@
   font-size: 24rpx;
 }
 
+.setting-tail {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
 .divider {
   height: 1rpx;
   background: #e8ebe9;
+}
+
+.feedback-section {
+  margin-top: 28rpx;
+}
+
+.setting-arrow {
+  width: 13rpx;
+  height: 13rpx;
+  margin-right: 5rpx;
+  border-top: 2rpx solid #89938d;
+  border-right: 2rpx solid #89938d;
+  transform: rotate(45deg);
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  height: 76rpx;
+  padding: 6rpx;
+  background: #e7ebe8;
+  border-radius: 8rpx;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #738078;
+  border-radius: 6rpx;
+  font-size: 26rpx;
+}
+
+.mode-option-active {
+  color: #244a37;
+  background: #ffffff;
+  box-shadow: 0 2rpx 8rpx rgba(30, 52, 40, 0.08);
+  font-weight: 600;
+}
+
+.auth-form {
+  margin-top: 34rpx;
+}
+
+.field {
+  display: block;
+  margin-bottom: 26rpx;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 12rpx;
+  color: #31473b;
+  font-size: 25rpx;
+  font-weight: 600;
+}
+
+.field-input {
+  width: 100%;
+  height: 92rpx;
+  padding: 0 26rpx;
+  color: #18201c;
+  background: #ffffff;
+  border: 1rpx solid #dce3de;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+}
+
+.field-placeholder {
+  color: #a0aaa4;
+}
+
+.form-error {
+  display: block;
+  margin: -4rpx 0 22rpx;
+  color: #a4473d;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.submit-button,
+.logout-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 92rpx;
+  margin: 0;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+  line-height: 1;
+}
+
+.submit-button::after,
+.logout-button::after {
+  border: 0;
+}
+
+.submit-button {
+  color: #ffffff;
+  background: #2f6b4f;
+  font-weight: 600;
+}
+
+.submit-button[disabled] {
+  color: rgba(255, 255, 255, 0.8);
+  background: #779887;
+}
+
+.logout-button {
+  margin-top: 28rpx;
+  color: #92453e;
+  background: transparent;
+  border: 1rpx solid #d9c4c1;
 }
 
 .bottom-nav {

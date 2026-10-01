@@ -20,6 +20,27 @@
         "navigationStyle": "custom",
         "navigationBarTitleText": "阅读"
       }
+    },
+    {
+      "path": "pages/room/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "共读"
+      }
+    },
+    {
+      "path": "pages/feedback/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "意见反馈"
+      }
+    },
+    {
+      "path": "pages/about/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "关于三叶"
+      }
     }
   ],
   "globalStyle": {

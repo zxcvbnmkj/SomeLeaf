@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=32)
     access_token_expire_minutes: int = 60 * 24 * 7
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    book_storage_dir: Path = Path("data/books")
 
     @property
     def cors_origin_list(self) -> list[str]:

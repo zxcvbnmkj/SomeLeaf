@@ -1,3 +1,5 @@
+import { clearLocalReadingData } from '@/services/local-reading'
+
 const BOOKS_KEY = 'someleaf:books'
 const CONTENT_KEY_PREFIX = 'someleaf:book-content:'
 
@@ -7,6 +9,17 @@ function createBookId() {
 
 function titleFromFileName(fileName) {
   return fileName.replace(/\.txt$/i, '').trim() || '未命名图书'
+}
+
+function sharingMetadata(room) {
+  return {
+    roomId: room.id,
+    inviteCode: room.invite_code,
+    ownerId: room.owner_id,
+    isOwner: room.is_owner,
+    status: room.status,
+    memberCount: room.member_count
+  }
 }
 
 function writeAppFile(id, content) {
@@ -95,6 +108,18 @@ export function updateBookProgress(id, progress) {
   uni.setStorageSync(BOOKS_KEY, books)
 }
 
+export function updateBookSharing(id, room) {
+  const books = listBooks().map((book) =>
+    book.id === id ? { ...book, sharing: sharingMetadata(room) } : book
+  )
+  uni.setStorageSync(BOOKS_KEY, books)
+  return books.find((book) => book.id === id)
+}
+
+export function findBookByRoom(roomId) {
+  return listBooks().find((book) => Number(book.sharing?.roomId) === Number(roomId))
+}
+
 export async function saveImportedBook(file) {
   const id = createBookId()
   let filePath = ''
@@ -124,6 +149,40 @@ export async function saveImportedBook(file) {
   return book
 }
 
+export async function saveJoinedBook(result) {
+  const existing = findBookByRoom(result.room.id)
+  if (existing) {
+    return updateBookSharing(existing.id, result.room)
+  }
+
+  const id = createBookId()
+  let filePath = ''
+
+  // #ifdef H5
+  uni.setStorageSync(`${CONTENT_KEY_PREFIX}${id}`, result.content)
+  // #endif
+
+  // #ifdef APP-PLUS
+  filePath = await writeAppFile(id, result.content)
+  // #endif
+
+  const book = {
+    id,
+    title: result.room.book.title,
+    fileName: result.room.book.file_name,
+    filePath,
+    fileSize: result.room.book.file_size,
+    encoding: result.room.book.encoding,
+    importedAt: Date.now(),
+    progress: 0,
+    source: 'shared',
+    sharing: sharingMetadata(result.room)
+  }
+
+  uni.setStorageSync(BOOKS_KEY, [book, ...listBooks()])
+  return book
+}
+
 export async function readBookContent(book) {
   if (!book) {
     throw new Error('没有找到这本书')
@@ -144,6 +203,8 @@ export async function readBookContent(book) {
 
 export async function deleteBook(book) {
   if (!book) return
+
+  clearLocalReadingData(book.id)
 
   // #ifdef H5
   uni.removeStorageSync(`${CONTENT_KEY_PREFIX}${book.id}`)
