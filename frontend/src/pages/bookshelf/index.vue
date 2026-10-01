@@ -21,14 +21,14 @@
       <view class="section-heading">
         <view>
           <text class="title">我的书架</text>
-          <text class="book-count">0 本书</text>
+          <text class="book-count">{{ books.length }} 本书</text>
         </view>
-        <view class="view-mode" aria-hidden="true">
-          <view class="grid-dot" />
-          <view class="grid-dot" />
-          <view class="grid-dot" />
-          <view class="grid-dot" />
-        </view>
+        <button
+          class="add-button"
+          :disabled="isImporting"
+          aria-label="导入 TXT"
+          @click="handleImport"
+        >+</button>
       </view>
 
       <view class="shelf-line">
@@ -39,7 +39,34 @@
         <text class="sort-label">最近阅读</text>
       </view>
 
-      <view class="empty-state">
+      <view v-if="books.length" class="book-list">
+        <view
+          v-for="book in books"
+          :key="book.id"
+          class="book-card"
+          @click="handleBookTap(book.id)"
+          @longpress="showBookActions(book)"
+        >
+          <view class="card-heading">
+            <view class="card-leaf" aria-hidden="true">
+              <view class="card-leaf-left" />
+              <view class="card-leaf-right" />
+              <view class="card-stem" />
+            </view>
+            <text class="file-type">TXT</text>
+          </view>
+
+          <text class="book-title">{{ book.title }}</text>
+          <text class="file-name">{{ book.fileName }}</text>
+
+          <view class="card-footer">
+            <text class="book-meta">{{ formatFileSize(book.fileSize) }}</text>
+            <view class="row-arrow" aria-hidden="true" />
+          </view>
+        </view>
+      </view>
+
+      <view v-else class="empty-state">
         <view class="empty-art" aria-hidden="true">
           <view class="sun" />
           <view class="book">
@@ -61,10 +88,14 @@
         <text class="empty-title">书架还是空的</text>
         <text class="empty-copy">从一本喜欢的小说开始吧</text>
 
-        <view class="import-button">
+        <button
+          class="import-button"
+          :disabled="isImporting"
+          @click="handleImport"
+        >
           <text class="plus">+</text>
           <text>导入 TXT</text>
-        </view>
+        </button>
       </view>
     </view>
 
@@ -94,6 +125,113 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import { pickTextFile } from '@/services/file-picker'
+import {
+  deleteBook,
+  listBooks,
+  saveImportedBook
+} from '@/services/book-storage'
+
+const books = ref([])
+const isImporting = ref(false)
+const deletingBookId = ref('')
+let suppressNextTap = false
+
+function refreshBookshelf() {
+  books.value = listBooks()
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '未知大小'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function openBook(id) {
+  uni.navigateTo({ url: `/pages/reader/index?id=${id}` })
+}
+
+function handleBookTap(id) {
+  if (suppressNextTap) return
+  openBook(id)
+}
+
+function showBookActions(book) {
+  if (deletingBookId.value) return
+
+  suppressNextTap = true
+
+  uni.showActionSheet({
+    itemList: ['删除图书'],
+    itemColor: '#A4473D',
+    success: ({ tapIndex }) => {
+      if (tapIndex === 0) confirmDelete(book)
+    },
+    complete: () => {
+      setTimeout(() => {
+        suppressNextTap = false
+      }, 300)
+    }
+  })
+}
+
+function confirmDelete(book) {
+  uni.showModal({
+    title: '删除图书',
+    content: `确定从书架删除《${book.title}》吗？删除后无法恢复。`,
+    confirmText: '删除',
+    confirmColor: '#A4473D',
+    success: async ({ confirm }) => {
+      if (!confirm) return
+
+      deletingBookId.value = book.id
+
+      try {
+        await deleteBook(book)
+        refreshBookshelf()
+        uni.showToast({ title: '已删除', icon: 'none' })
+      } catch (error) {
+        uni.showToast({
+          title: error.message || '删除失败，请重试',
+          icon: 'none'
+        })
+      } finally {
+        deletingBookId.value = ''
+      }
+    }
+  })
+}
+
+async function handleImport() {
+  if (isImporting.value) return
+
+  isImporting.value = true
+
+  try {
+    const file = await pickTextFile()
+    uni.showLoading({ title: '正在导入', mask: true })
+    const book = await saveImportedBook(file)
+    refreshBookshelf()
+    uni.showToast({ title: `已导入《${book.title}》`, icon: 'none' })
+  } catch (error) {
+    if (error && error.message !== '未选择文件') {
+      uni.showToast({
+        title: error.message || '导入失败，请重试',
+        icon: 'none',
+        duration: 2600
+      })
+    }
+  } finally {
+    uni.hideLoading()
+    isImporting.value = false
+  }
+}
+
+onShow(refreshBookshelf)
 </script>
 
 <style scoped>
@@ -217,22 +355,31 @@
   font-size: 25rpx;
 }
 
-.view-mode {
-  display: grid;
-  grid-template-columns: repeat(2, 10rpx);
-  gap: 7rpx;
+.add-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 64rpx;
   height: 64rpx;
-  place-content: center;
-  background: #e7ece8;
+  margin: 0;
+  padding: 0 0 5rpx;
+  color: #ffffff;
+  background: #2f6b4f;
+  border: 0;
   border-radius: 8rpx;
+  font-size: 42rpx;
+  font-weight: 300;
+  line-height: 1;
 }
 
-.grid-dot {
-  width: 10rpx;
-  height: 10rpx;
-  background: #476957;
-  border-radius: 2rpx;
+.add-button::after,
+.import-button::after {
+  border: 0;
+}
+
+.add-button[disabled],
+.import-button[disabled] {
+  opacity: 0.6;
 }
 
 .shelf-line {
@@ -263,6 +410,127 @@
 .sort-label {
   color: #87918b;
   font-size: 24rpx;
+}
+
+.book-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24rpx;
+  padding-top: 30rpx;
+}
+
+.book-card {
+  display: flex;
+  min-width: 0;
+  height: 264rpx;
+  padding: 24rpx;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1rpx solid #dfe5e0;
+  border-radius: 16rpx;
+  box-shadow: 0 10rpx 24rpx rgba(37, 62, 49, 0.07);
+}
+
+.book-card:active {
+  background: #f9fbf9;
+}
+
+.card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 42rpx;
+}
+
+.card-leaf {
+  position: relative;
+  width: 38rpx;
+  height: 38rpx;
+}
+
+.card-leaf-left,
+.card-leaf-right {
+  position: absolute;
+  top: 4rpx;
+  width: 15rpx;
+  height: 23rpx;
+  background: #5d936d;
+  border-radius: 14rpx 2rpx 14rpx 2rpx;
+}
+
+.card-leaf-left {
+  left: 4rpx;
+  transform: rotate(-34deg);
+}
+
+.card-leaf-right {
+  right: 4rpx;
+  background: #357653;
+  transform: rotate(34deg) scaleX(-1);
+}
+
+.card-stem {
+  position: absolute;
+  left: 18rpx;
+  bottom: 3rpx;
+  width: 3rpx;
+  height: 17rpx;
+  background: #3c704f;
+  border-radius: 3rpx;
+}
+
+.file-type {
+  color: #79877f;
+  font-size: 19rpx;
+  font-weight: 600;
+}
+
+.book-title {
+  display: -webkit-box;
+  overflow: hidden;
+  height: 82rpx;
+  margin-top: 18rpx;
+  color: #20382c;
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.file-name {
+  display: block;
+  overflow: hidden;
+  margin-top: 8rpx;
+  color: #8a958e;
+  font-size: 20rpx;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #edf0ed;
+}
+
+.book-meta {
+  display: block;
+  color: #89938d;
+  font-size: 20rpx;
+}
+
+.row-arrow {
+  width: 11rpx;
+  height: 11rpx;
+  margin-right: 4rpx;
+  border-top: 2rpx solid #829289;
+  border-right: 2rpx solid #829289;
+  transform: rotate(45deg);
 }
 
 .empty-state {
@@ -401,6 +669,8 @@
   width: 260rpx;
   height: 88rpx;
   margin-top: 48rpx;
+  padding: 0;
+  border: 0;
   gap: 13rpx;
   color: #ffffff;
   background: #2f6b4f;
@@ -408,6 +678,7 @@
   box-shadow: 0 12rpx 24rpx rgba(47, 107, 79, 0.2);
   font-size: 27rpx;
   font-weight: 600;
+  line-height: 1;
 }
 
 .plus {

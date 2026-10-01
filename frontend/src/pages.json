@@ -13,6 +13,13 @@
         "navigationStyle": "custom",
         "navigationBarTitleText": "我的"
       }
+    },
+    {
+      "path": "pages/reader/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "阅读"
+      }
     }
   ],
   "globalStyle": {
