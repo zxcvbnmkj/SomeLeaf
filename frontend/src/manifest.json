@@ -16,9 +16,6 @@
         },
         "distribute" : {
             "orientation" : [ "portrait-primary" ],
-            "android" : {
-                "usesCleartextTraffic" : true
-            },
             "icons" : {
                 "android" : {
                     "hdpi" : "unpackage/res/icons/72x72.png",
@@ -50,13 +47,18 @@
                         "spotlight@3x" : "unpackage/res/icons/120x120.png"
                     }
                 }
-            },
-            "ios" : {
-                "dSYMs" : false
             }
         }
     },
     "h5" : {
         "title" : "SomeLeaf - 三叶"
+    },
+    "mp-weixin" : {
+        "appid" : "wx362d6bfefc1d26d4",
+        "setting" : {
+            "postcss" : true,
+            "minified" : true,
+            "urlCheck" : false
+        }
     }
 }

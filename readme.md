@@ -54,6 +54,9 @@ npm run dev:app
 
 # 生成正式 App 构建产物
 npm run build:app
+
+# 调试小程序
+npm run dev:mp-weixin
 ```
 
 ## 后端开发
