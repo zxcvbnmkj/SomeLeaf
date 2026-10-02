@@ -119,6 +119,51 @@ function pickFromBrowser() {
 }
 // #endif
 
+// #ifdef MP-WEIXIN
+function pickFromWechat() {
+  return new Promise((resolve, reject) => {
+    uni.chooseMessageFile({
+      count: 1,
+      type: 'file',
+      extension: ['txt', 'epub'],
+      success: (result) => {
+        const file = result.tempFiles?.[0]
+        if (!file) {
+          reject(new Error('未选择文件'))
+          return
+        }
+
+        try {
+          validateFile(file.name, file.size)
+        } catch (error) {
+          reject(error)
+          return
+        }
+
+        uni.getFileSystemManager().readFile({
+          filePath: file.path,
+          success: async ({ data }) => {
+            try {
+              resolve(await createPickedFile(file.name, file.size, data))
+            } catch (error) {
+              reject(error)
+            }
+          },
+          fail: () => reject(new Error('无法读取所选图书文件'))
+        })
+      },
+      fail: (error) => {
+        if (error?.errMsg?.includes('cancel')) {
+          reject(new Error('未选择文件'))
+          return
+        }
+        reject(new Error('打开文件选择器失败'))
+      }
+    })
+  })
+}
+// #endif
+
 // #ifdef APP-PLUS
 function getDocumentMeta(resolver, uri) {
   const cursor = resolver.query(uri, null, null, null, null)
@@ -330,6 +375,10 @@ function pickFromAndroid() {
 export function pickBookFile() {
   // #ifdef H5
   return pickFromBrowser()
+  // #endif
+
+  // #ifdef MP-WEIXIN
+  return pickFromWechat()
   // #endif
 
   // #ifdef APP-PLUS

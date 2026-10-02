@@ -124,7 +124,7 @@ export async function saveImportedBook(file) {
   const id = createBookId()
   let filePath = ''
 
-  // #ifdef H5
+  // #ifdef H5 || MP-WEIXIN
   uni.setStorageSync(`${CONTENT_KEY_PREFIX}${id}`, file.content)
   // #endif
 
@@ -161,7 +161,7 @@ export async function saveJoinedBook(result) {
   const id = createBookId()
   let filePath = ''
 
-  // #ifdef H5
+  // #ifdef H5 || MP-WEIXIN
   uni.setStorageSync(`${CONTENT_KEY_PREFIX}${id}`, result.content)
   // #endif
 
@@ -193,7 +193,7 @@ export async function readBookContent(book) {
     throw new Error('没有找到这本书')
   }
 
-  // #ifdef H5
+  // #ifdef H5 || MP-WEIXIN
   return uni.getStorageSync(`${CONTENT_KEY_PREFIX}${book.id}`) || ''
   // #endif
 
@@ -211,7 +211,7 @@ export async function deleteBook(book) {
 
   clearLocalReadingData(book.id)
 
-  // #ifdef H5
+  // #ifdef H5 || MP-WEIXIN
   uni.removeStorageSync(`${CONTENT_KEY_PREFIX}${book.id}`)
   // #endif
 
