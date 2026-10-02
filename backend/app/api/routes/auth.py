@@ -9,7 +9,7 @@ from app.api.deps import get_current_user
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import AuthRequest, TokenResponse, UserPublic, normalize_username
+from app.schemas.auth import AuthRequest, TokenResponse, UserPublic
 
 
 router = APIRouter()
@@ -31,10 +31,7 @@ def register(
     payload: AuthRequest,
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenResponse:
-    normalized_username = normalize_username(payload.username)
-    existing_user = db.scalar(
-        select(User).where(User.username_normalized == normalized_username)
-    )
+    existing_user = db.scalar(select(User).where(User.username == payload.username))
     if existing_user is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -43,7 +40,6 @@ def register(
 
     user = User(
         username=payload.username,
-        username_normalized=normalized_username,
         password_hash=hash_password(payload.password),
     )
     db.add(user)
@@ -65,10 +61,7 @@ def login(
     payload: AuthRequest,
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenResponse:
-    normalized_username = normalize_username(payload.username)
-    user = db.scalar(
-        select(User).where(User.username_normalized == normalized_username)
-    )
+    user = db.scalar(select(User).where(User.username == payload.username))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

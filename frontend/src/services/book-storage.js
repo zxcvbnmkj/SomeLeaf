@@ -139,6 +139,7 @@ export async function saveImportedBook(file) {
     filePath,
     fileSize: file.size > 0 ? file.size : file.content.length,
     encoding: 'utf-8',
+    sourceEncoding: file.encoding || 'utf-8',
     importedAt: Date.now(),
     progress: 0
   }

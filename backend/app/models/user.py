@@ -13,10 +13,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(
         BIGINT(unsigned=True), primary_key=True, autoincrement=True
     )
-    username: Mapped[str] = mapped_column(String(24), nullable=False)
-    username_normalized: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True
-    )
+    username: Mapped[str] = mapped_column(String(24), nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()

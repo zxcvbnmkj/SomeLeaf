@@ -12,10 +12,6 @@ def validate_username(value: str) -> str:
     return username
 
 
-def normalize_username(username: str) -> str:
-    return username.strip().casefold()
-
-
 class AuthRequest(BaseModel):
     username: str
     password: str

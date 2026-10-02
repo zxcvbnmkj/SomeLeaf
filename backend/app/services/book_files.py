@@ -7,7 +7,7 @@ from uuid import uuid4
 from app.core.config import settings
 
 
-MAX_BOOK_BYTES = int(2.5 * 1024 * 1024)
+MAX_BOOK_BYTES = 4 * 1024 * 1024
 
 
 def normalize_book_content(content: str) -> str:
@@ -18,7 +18,7 @@ def normalize_book_content(content: str) -> str:
 
 def prepare_book_content(content: str) -> tuple[str, bytes, str]:
     if len(content.encode("utf-8")) > MAX_BOOK_BYTES:
-        raise ValueError("TXT 文件不能超过 2.5 MB")
+        raise ValueError("TXT 文件不能超过 4 MB")
 
     normalized = normalize_book_content(content)
     if not normalized:

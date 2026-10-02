@@ -29,22 +29,22 @@
           <text class="setting-value">{{ currentUser.username }}</text>
         </view>
         <view class="divider" />
-        <navigator class="setting-link" url="/pages/about/index">
+        <view class="setting-link" @click="openPage('/pages/about/index')">
           <view class="setting-row">
             <text class="setting-name">关于三叶</text>
             <view class="setting-tail">
-              <text class="setting-value">v0.1.0</text>
+              <text class="setting-value">v0.1.4</text>
               <view class="setting-arrow" aria-hidden="true" />
             </view>
           </view>
-        </navigator>
+        </view>
         <view class="divider" />
-        <navigator class="setting-link" url="/pages/feedback/index">
+        <view class="setting-link" @click="openPage('/pages/feedback/index')">
           <view class="setting-row">
             <text class="setting-name">意见反馈</text>
             <view class="setting-arrow" aria-hidden="true" />
           </view>
-        </navigator>
+        </view>
       </view>
 
       <button
@@ -118,12 +118,12 @@
       </view>
 
       <view v-if="!currentUser" class="section feedback-section">
-        <navigator class="setting-link" url="/pages/feedback/index">
+        <view class="setting-link" @click="openPage('/pages/feedback/index')">
           <view class="setting-row">
             <text class="setting-name">意见反馈</text>
             <view class="setting-arrow" aria-hidden="true" />
           </view>
-        </navigator>
+        </view>
       </view>
     </view>
 
@@ -181,6 +181,19 @@ function setMode(registerMode) {
   if (isSubmitting.value) return
   isRegisterMode.value = registerMode
   formError.value = ''
+}
+
+function openPage(url) {
+  uni.navigateTo({
+    url,
+    fail: (error) => {
+      console.error('页面跳转失败', error)
+      uni.showToast({
+        title: '页面打开失败，请重新安装最新版',
+        icon: 'none'
+      })
+    }
+  })
 }
 
 function validateForm() {

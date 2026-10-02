@@ -32,7 +32,7 @@
         </text>
       </view>
 
-      <text class="version">SomeLeaf v0.1.0 -- 20261002</text>
+      <text class="version">SomeLeaf v0.1.4 -- 20261002</text>
     </view>
   </view>
 </template>

@@ -16,6 +16,9 @@
         },
         "distribute" : {
             "orientation" : [ "portrait-primary" ],
+            "android" : {
+                "usesCleartextTraffic" : true
+            },
             "icons" : {
                 "android" : {
                     "hdpi" : "unpackage/res/icons/72x72.png",

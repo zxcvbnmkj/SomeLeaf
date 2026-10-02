@@ -50,7 +50,7 @@
 
       <view v-else class="panel-body" :class="{ 'panel-body-with-notice': isLocal }">
         <view v-if="!isReadOnly" class="create-row">
-          <text class="selection-preview">记录第 {{ pageNumber }} 页的想法</text>
+          <text class="selection-preview">记录对这本书的想法</text>
           <button class="create-button" :disabled="isBusy" @tap="addNote">写笔记</button>
         </view>
 
@@ -61,10 +61,9 @@
             v-for="item in notes"
             :key="item.id"
             class="entry"
-            @tap="emit('locate', item)"
             @longpress="showNoteActions(item)"
           >
-            <text class="note-title">{{ item.title || '读书笔记' }}</text>
+            <text class="note-title">读书笔记</text>
             <text class="entry-content">{{ item.content }}</text>
             <text v-if="item.quote" class="note-quote">摘录：{{ compactText(item.quote, 72) }}</text>
             <view class="entry-meta">
@@ -129,8 +128,6 @@ const props = defineProps({
   localBookId: { type: String, default: '' },
   currentUserId: { type: Number, default: 0 },
   selectedRange: { type: Object, default: null },
-  currentOffset: { type: Number, default: 0 },
-  pageNumber: { type: Number, default: 1 },
   initialTab: { type: String, default: 'annotations' },
   composeRequest: { type: Number, default: 0 }
 })
@@ -256,10 +253,10 @@ async function saveEditor() {
       }
     } else if (editor.value.kind === 'note-create') {
       const payload = {
-        title: `第 ${props.pageNumber} 页`,
+        title: null,
         content: value,
-        anchor_offset: props.selectedRange?.startOffset ?? props.currentOffset,
-        quote: props.selectedRange?.quote || null
+        anchor_offset: null,
+        quote: null
       }
       if (isLocal.value) {
         createLocalNote(props.localBookId, payload)
@@ -544,6 +541,7 @@ watch(
 
 .editor-dialog {
   width: 100%;
+  box-sizing: border-box;
   padding: 30rpx;
   background: #ffffff;
   border-radius: 8rpx;
@@ -571,10 +569,13 @@ watch(
 }
 
 .editor-input {
+  display: block;
   width: 100%;
+  max-width: 100%;
   height: 230rpx;
   margin-top: 22rpx;
   padding: 20rpx;
+  box-sizing: border-box;
   color: #24352c;
   background: #f4f6f3;
   border: 1rpx solid #dce3de;

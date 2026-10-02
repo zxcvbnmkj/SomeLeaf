@@ -40,7 +40,12 @@ pdm run alembic upgrade head
 ```
 - 本地启动，浅浅测试一下
 ```bash
-pdm run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+pdm run uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+```
+- 上传服务器
+- prod 配置覆盖本地配置
+```commandline
+cp .env_prod .env
 ```
 ## 其它
 - svg to png 的[免费网页](https://svgtopng.com/)

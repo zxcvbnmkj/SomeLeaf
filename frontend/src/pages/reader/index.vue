@@ -1,5 +1,5 @@
 <template>
-	<view class="reader-page">
+	<view class="reader-page" :style="readerPageStyle">
 		<view class="reader-header">
 			<navigator class="back-button" open-type="navigateBack" :delta="1" aria-label="返回书架">
 				<view class="back-arrow" aria-hidden="true" />
@@ -25,8 +25,10 @@
 		<view
 			v-else
 			class="reading-area"
-				:selection-bridge-active="Boolean(activeBook)"
+			:selection-bridge-active="Boolean(activeBook)"
 			:change:selection-bridge-active="selectionBridge.onActiveChange"
+			:selection-clear-request="selectionClearRequest"
+			:change:selection-clear-request="selectionBridge.onClearRequest"
 			@tap="handleReadingTap"
 		>
 			<view v-if="currentPageIndex === 0" class="chapter-heading">
@@ -54,6 +56,7 @@
 
 		</view>
 
+		<!-- #ifndef APP-PLUS -->
 		<button
 			v-if="canCommentOnSelection"
 			class="selection-comment-button"
@@ -63,6 +66,7 @@
 			<view class="selection-comment-icon" aria-hidden="true" />
 			<text>评论</text>
 		</button>
+		<!-- #endif -->
 
 		<view v-if="isControlsVisible && isSearchOpen" class="search-panel">
 			<view class="search-input-row">
@@ -133,6 +137,25 @@
 			</view>
 		</view>
 
+		<view v-if="viewedAnnotations.length" class="comment-peek-layer" @tap="closeCommentPeek">
+			<view class="comment-peek" @tap.stop>
+				<text class="comment-peek-quote">“{{ compactCommentQuote(viewedAnnotationQuote) }}”</text>
+				<scroll-view class="comment-peek-list" scroll-y>
+					<view
+						v-for="item in viewedAnnotations"
+						:key="item.id"
+						class="comment-peek-item"
+					>
+						<view class="comment-author-row">
+							<text class="comment-username">{{ item.username }}</text>
+							<text class="comment-time">{{ formatCommentTime(item.created_at) }}</text>
+						</view>
+						<text class="comment-body">{{ item.comment || '标记了这段原文' }}</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
 		<ReaderCommunityPanel
 			v-if="activeBook"
 			:visible="isCommunityVisible"
@@ -140,8 +163,6 @@
 			:local-book-id="communityRoom ? '' : activeBookId"
 			:current-user-id="currentUserId"
 			:selected-range="selectedRange"
-			:current-offset="currentOffset"
-			:page-number="currentPageIndex + 1"
 			:initial-tab="communityInitialTab"
 			:compose-request="commentComposeRequest"
 			@close="isCommunityVisible = false"
@@ -155,6 +176,7 @@
 <script setup>
 	import {
 		computed,
+		getCurrentInstance,
 		onMounted,
 		onUnmounted,
 		ref
@@ -199,8 +221,21 @@
 	const commentComposeRequest = ref(0)
 	const selectedRange = ref(null)
 	const selectionButtonPosition = ref(null)
+	const selectionClearRequest = ref(0)
 	const sharedAnnotations = ref([])
+	const viewedAnnotations = ref([])
+	const viewedAnnotationQuote = ref('')
 	const currentUserId = Number(getStoredUser()?.id || 0)
+	const readerComponentInstance = getCurrentInstance()
+	const systemInfo = uni.getSystemInfoSync()
+	const readerSafeTop = Math.max(
+		Number(systemInfo.statusBarHeight || 0),
+		Number(systemInfo.safeAreaInsets?.top || 0),
+		Number(systemInfo.safeArea?.top || 0)
+	)
+	const readerPageStyle = {
+		'--reader-safe-top': `${readerSafeTop}px`
+	}
 	const FONT_SIZE_STORAGE_KEY = 'someleaf:reader-font-size'
 	const storedFontSize = Number(uni.getStorageSync(FONT_SIZE_STORAGE_KEY))
 	if (storedFontSize >= 26 && storedFontSize <= 42) {
@@ -387,6 +422,7 @@
 	function changePage(nextIndex) {
 		if (nextIndex < 0 || nextIndex >= pages.value.length) return
 
+		closeCommentPeek()
 		clearSelectedRange()
 		currentPageIndex.value = nextIndex
 		saveProgress()
@@ -573,7 +609,18 @@
 		positionSelectionCommentButton(payload.rect, payload.viewportWidth, payload.viewportHeight)
 	}
 
-	defineExpose({ handleRenderedSelection })
+	function handleRenderedSelectionAction(payload) {
+		if (!payload || !rememberSelectedText(payload.text)) {
+			uni.showToast({ title: '没有识别到选中的文字', icon: 'none' })
+			return
+		}
+		commentOnSelection()
+	}
+	if (readerComponentInstance) {
+		readerComponentInstance.ctx.receiveRenderedSelection = handleRenderedSelectionAction
+	}
+
+	defineExpose({ handleRenderedSelection, handleRenderedSelectionAction })
 
 	function captureBrowserSelection() {
 		if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -596,6 +643,7 @@
 	function clearSelectedRange() {
 		selectedRange.value = null
 		selectionButtonPosition.value = null
+		selectionClearRequest.value += 1
 		if (typeof window !== 'undefined') window.getSelection?.()?.removeAllRanges()
 	}
 
@@ -610,18 +658,28 @@
 	function handleSegmentTap(segment, event) {
 		if (!segment.annotations?.length) return
 		event.stopPropagation?.()
-		const uniqueAnnotations = Array.from(
+		viewedAnnotations.value = Array.from(
 			new Map(segment.annotations.map((item) => [item.id, item])).values()
 		)
-		const content = uniqueAnnotations
-			.map((item) => `${item.username}：${item.comment || '只标记了这段原文'}`)
-			.join('\n\n')
-		uni.showModal({
-			title: '划线评论',
-			content,
-			showCancel: false,
-			confirmText: '关闭'
-		})
+		viewedAnnotationQuote.value = viewedAnnotations.value[0]?.quote || segment.text
+	}
+
+	function closeCommentPeek() {
+		viewedAnnotations.value = []
+		viewedAnnotationQuote.value = ''
+	}
+
+	function compactCommentQuote(value) {
+		const compact = String(value || '').replace(/\s+/g, ' ').trim()
+		return compact.length > 88 ? `${compact.slice(0, 88)}…` : compact
+	}
+
+	function formatCommentTime(value) {
+		const date = new Date(value)
+		if (Number.isNaN(date.getTime())) return ''
+		const hours = String(date.getHours()).padStart(2, '0')
+		const minutes = String(date.getMinutes()).padStart(2, '0')
+		return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${hours}:${minutes}`
 	}
 
 	function findEntryPageIndex(item) {
@@ -769,41 +827,66 @@
 			data() {
 				return {
 					enabled: true,
-					captureTimer: null
+					captureTimer: null,
+					selectionPoller: null,
+					emptySelectionChecks: 0,
+					commentButton: null,
+					selectionPayload: null,
+					lastCommentAt: 0
 				}
 			},
 			mounted() {
 				document.addEventListener('selectionchange', this.scheduleCapture)
 				document.addEventListener('touchend', this.scheduleCapture)
 				document.addEventListener('mouseup', this.scheduleCapture)
+				this.selectionPoller = setInterval(() => this.captureSelection(), 300)
 			},
 			beforeDestroy() {
 				document.removeEventListener('selectionchange', this.scheduleCapture)
 				document.removeEventListener('touchend', this.scheduleCapture)
 				document.removeEventListener('mouseup', this.scheduleCapture)
 				if (this.captureTimer) clearTimeout(this.captureTimer)
+				if (this.selectionPoller) clearInterval(this.selectionPoller)
+				this.removeCommentButton()
 			},
 			methods: {
 				onActiveChange(value) {
 					this.enabled = Boolean(value)
+					if (!this.enabled) this.removeCommentButton()
+				},
+				onClearRequest() {
+					this.removeCommentButton()
+					const selection = window.getSelection && window.getSelection()
+					if (selection) selection.removeAllRanges()
 				},
 				scheduleCapture() {
 					if (!this.enabled) return
 					if (this.captureTimer) clearTimeout(this.captureTimer)
-					this.captureTimer = setTimeout(() => this.captureSelection(), 80)
+					this.captureTimer = setTimeout(() => this.captureSelection(), 160)
 				},
 				captureSelection() {
 					const selection = window.getSelection && window.getSelection()
-					if (!selection || selection.isCollapsed || !selection.rangeCount) return
-					const contentElement = this.$el && this.$el.querySelector('.book-content')
+					if (!selection || selection.isCollapsed || !selection.rangeCount) {
+						this.emptySelectionChecks += 1
+						if (this.emptySelectionChecks >= 3) this.removeCommentButton()
+						return
+					}
+					this.emptySelectionChecks = 0
+					const contentElement = document.querySelector('.book-content') ||
+						(this.$el && this.$el.querySelector('.book-content'))
 					const range = selection.getRangeAt(0)
-					if (!contentElement || !contentElement.contains(range.commonAncestorContainer)) return
+					const startsInContent = contentElement?.contains(selection.anchorNode)
+					const endsInContent = contentElement?.contains(selection.focusNode)
+					if (!contentElement || (!startsInContent && !endsInContent)) {
+						this.removeCommentButton()
+						return
+					}
 					const rectangles = Array.from(range.getClientRects()).filter(
 						(rect) => rect.width > 0 && rect.height > 0
 					)
 					const sourceRect = rectangles[rectangles.length - 1] || range.getBoundingClientRect()
 					if (!sourceRect || (!sourceRect.width && !sourceRect.height)) return
-					this.$ownerInstance.callMethod('handleRenderedSelection', {
+					this.selectionPayload = {
 						text: selection.toString(),
 						rect: {
 							left: sourceRect.left,
@@ -814,7 +897,77 @@
 						},
 						viewportWidth: window.innerWidth,
 						viewportHeight: window.innerHeight
-					})
+					}
+					this.showCommentButton(sourceRect)
+				},
+				showCommentButton(rect) {
+					if (!this.commentButton) {
+						const button = document.createElement('div')
+						button.textContent = '评论'
+						button.setAttribute('role', 'button')
+						button.style.cssText = [
+							'position:fixed',
+							'z-index:2147483647',
+							'width:64px',
+							'height:36px',
+							'display:flex',
+							'align-items:center',
+							'justify-content:center',
+							'color:#fff',
+							'background:#56866a',
+							'border-radius:6px',
+							'box-shadow:0 4px 12px rgba(55,101,76,.2)',
+							'font-size:14px',
+							'line-height:36px',
+							'pointer-events:auto',
+							'touch-action:manipulation',
+							'-webkit-tap-highlight-color:transparent',
+							'user-select:none',
+							'-webkit-user-select:none'
+						].join(';')
+						button.addEventListener('touchstart', (event) => {
+							event.preventDefault()
+							event.stopPropagation()
+							this.submitCommentSelection()
+						}, { passive: false })
+						button.addEventListener('mousedown', (event) => {
+							event.preventDefault()
+							event.stopPropagation()
+							this.submitCommentSelection()
+						})
+						document.body.appendChild(button)
+						this.commentButton = button
+					}
+					const width = 64
+					const height = 36
+					const gap = 8
+					const edge = 10
+					let left = rect.right + gap
+					if (left + width > window.innerWidth - edge) left = rect.left - width - gap
+					if (left < edge) left = window.innerWidth - width - edge
+					let top = rect.top + (rect.height - height) / 2
+					if (left >= window.innerWidth - width - edge) top = rect.bottom + gap
+					top = Math.max(edge, Math.min(top, window.innerHeight - height - edge))
+					this.commentButton.style.left = `${Math.max(edge, left)}px`
+					this.commentButton.style.top = `${top}px`
+				},
+				submitCommentSelection() {
+					const now = Date.now()
+					if (now - this.lastCommentAt < 400 || !this.selectionPayload) return
+					this.lastCommentAt = now
+					const payload = this.selectionPayload
+					const selection = window.getSelection && window.getSelection()
+					if (selection) selection.removeAllRanges()
+					this.removeCommentButton()
+					setTimeout(() => {
+						this.$ownerInstance.callMethod('receiveRenderedSelection', payload)
+					}, 50)
+				},
+				removeCommentButton() {
+					if (this.commentButton?.parentNode) this.commentButton.parentNode.removeChild(this.commentButton)
+					this.commentButton = null
+					this.selectionPayload = null
+					this.emptySelectionChecks = 0
 				}
 			}
 		}
@@ -839,8 +992,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		height: calc(76rpx + env(safe-area-inset-top));
-		padding: env(safe-area-inset-top) 20rpx 0;
+		height: calc(76rpx + var(--reader-safe-top));
+		padding: var(--reader-safe-top) 20rpx 0;
 		background: rgba(246, 247, 242, 0.96);
 		border-bottom: 1rpx solid rgba(47, 76, 60, 0.1);
 	}
@@ -906,7 +1059,7 @@
 
 	.reading-area {
 		width: 100%;
-		height: calc(100vh - 76rpx - env(safe-area-inset-top));
+		height: calc(100vh - 76rpx - var(--reader-safe-top));
 		max-width: 760rpx;
 		margin: 0 auto;
 		padding: 36rpx 40rpx calc(72rpx + env(safe-area-inset-bottom));
@@ -997,6 +1150,89 @@
 
 	.search-highlight.annotation-highlight {
 		background: rgba(218, 190, 99, 0.42);
+	}
+
+	.comment-peek-layer {
+		position: fixed;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		z-index: 12;
+		background: rgba(28, 38, 32, 0.16);
+	}
+
+	.comment-peek {
+		position: absolute;
+		right: 24rpx;
+		bottom: calc(24rpx + env(safe-area-inset-bottom));
+		left: 24rpx;
+		overflow: hidden;
+		max-width: 700rpx;
+		margin: 0 auto;
+		background: #fbfcfa;
+		border: 1rpx solid rgba(73, 104, 86, 0.16);
+		border-radius: 8rpx;
+		box-shadow: 0 16rpx 44rpx rgba(28, 48, 37, 0.16);
+	}
+
+	.comment-peek-quote {
+		display: block;
+		padding: 23rpx 28rpx 21rpx;
+		color: #5b7164;
+		background: #eef3ee;
+		font-family: "Songti SC", "STSong", serif;
+		font-size: 23rpx;
+		line-height: 1.65;
+	}
+
+	.comment-peek-list {
+		display: block;
+		max-height: 42vh;
+	}
+
+	.comment-peek-item {
+		padding: 24rpx 28rpx 25rpx;
+		border-bottom: 1rpx solid #e8ece9;
+	}
+
+	.comment-peek-item:last-child {
+		border-bottom: 0;
+	}
+
+	.comment-author-row {
+		display: flex;
+		align-items: baseline;
+		min-width: 0;
+		gap: 16rpx;
+	}
+
+	.comment-username {
+		overflow: hidden;
+		max-width: 46%;
+		color: #3f684f;
+		font-size: 24rpx;
+		font-weight: 650;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.comment-time {
+		margin-left: auto;
+		color: #929c96;
+		font-size: 19rpx;
+		white-space: nowrap;
+	}
+
+	.comment-body {
+		display: block;
+		margin: 14rpx 0 0 18rpx;
+		padding-left: 18rpx;
+		color: #2c3932;
+		border-left: 3rpx solid #bfd0c4;
+		font-size: 26rpx;
+		line-height: 1.68;
+		white-space: pre-wrap;
 	}
 
 	.selection-comment-button {

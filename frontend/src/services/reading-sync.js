@@ -29,10 +29,10 @@ export async function syncLocalReadingToRoom(bookId, roomId) {
   for (const item of notes) {
     try {
       await createNote(roomId, {
-        title: item.title,
+        title: null,
         content: item.content,
-        anchor_offset: item.anchor_offset,
-        quote: item.quote
+        anchor_offset: null,
+        quote: null
       })
       deleteLocalNote(bookId, item.id)
       uploaded += 1
