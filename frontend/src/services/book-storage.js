@@ -8,7 +8,7 @@ function createBookId() {
 }
 
 function titleFromFileName(fileName) {
-  return fileName.replace(/\.txt$/i, '').trim() || '未命名图书'
+  return fileName.replace(/\.(txt|epub)$/i, '').trim() || '未命名图书'
 }
 
 function sharingMetadata(room) {
@@ -38,13 +38,13 @@ function writeAppFile(id, content) {
                 entry.createWriter(
                   (writer) => {
                     writer.onwrite = () => resolve(entry.toLocalURL())
-                    writer.onerror = () => reject(new Error('保存 TXT 文件失败'))
+                    writer.onerror = () => reject(new Error('保存图书文件失败'))
                     writer.write(content)
                   },
-                  () => reject(new Error('无法写入 TXT 文件'))
+                  () => reject(new Error('无法写入图书文件'))
                 )
               },
-              () => reject(new Error('无法创建 TXT 文件'))
+              () => reject(new Error('无法创建图书文件'))
             )
           },
           () => reject(new Error('无法创建图书目录'))
@@ -134,12 +134,14 @@ export async function saveImportedBook(file) {
 
   const book = {
     id,
-    title: titleFromFileName(file.name),
+    title: file.title?.trim() || titleFromFileName(file.name),
     fileName: file.name,
     filePath,
     fileSize: file.size > 0 ? file.size : file.content.length,
     encoding: 'utf-8',
     sourceEncoding: file.encoding || 'utf-8',
+    format: file.format || 'txt',
+    chapters: Array.isArray(file.chapters) ? file.chapters : [],
     importedAt: Date.now(),
     progress: 0
   }
@@ -174,6 +176,8 @@ export async function saveJoinedBook(result) {
     filePath,
     fileSize: result.room.book.file_size,
     encoding: result.room.book.encoding,
+    format: /\.epub$/i.test(result.room.book.file_name) ? 'epub' : 'txt',
+    chapters: result.room.book.chapters || [],
     importedAt: Date.now(),
     progress: 0,
     source: 'shared',

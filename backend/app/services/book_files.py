@@ -18,11 +18,11 @@ def normalize_book_content(content: str) -> str:
 
 def prepare_book_content(content: str) -> tuple[str, bytes, str]:
     if len(content.encode("utf-8")) > MAX_BOOK_BYTES:
-        raise ValueError("TXT 文件不能超过 4 MB")
+        raise ValueError("图书正文不能超过 4 MB")
 
     normalized = normalize_book_content(content)
     if not normalized:
-        raise ValueError("TXT 文件没有可阅读的内容")
+        raise ValueError("图书文件没有可阅读的内容")
 
     encoded = normalized.encode("utf-8")
     return normalized, encoded, hashlib.sha256(encoded).hexdigest()

@@ -32,7 +32,7 @@
 			@tap="handleReadingTap"
 		>
 			<view v-if="currentPageIndex === 0" class="chapter-heading">
-				<text class="chapter-number">本地 TXT</text>
+				<text class="chapter-number">本地 {{ (activeBook?.format || 'txt').toUpperCase() }}</text>
 				<text class="chapter-title">{{ bookTitle }}</text>
 				<view class="chapter-mark" aria-hidden="true">
 					<view class="mark-line" />
@@ -108,8 +108,44 @@
 			</view>
 		</view>
 
+		<view v-if="isChapterDrawerOpen" class="chapter-drawer-layer" @tap="closeChapterDrawer">
+			<view class="chapter-drawer" @tap.stop>
+				<view class="chapter-drawer-heading">
+					<text class="chapter-drawer-title">目录</text>
+					<text class="chapter-drawer-count">{{ chapterItems.length }} 章</text>
+				</view>
+				<scroll-view
+					class="chapter-list"
+					scroll-y
+					:scroll-into-view="activeChapterElementId"
+				>
+					<view
+						v-for="(chapter, index) in chapterItems"
+						:id="`reader-chapter-${index}`"
+						:key="`${chapter.pageIndex}-${chapter.title}`"
+						class="chapter-list-item"
+						:class="{ 'chapter-list-item-active': index === currentChapterIndex }"
+						@tap="goToChapter(chapter.pageIndex)"
+					>
+						<text class="chapter-list-number">{{ String(index + 1).padStart(2, '0') }}</text>
+						<text class="chapter-list-title">{{ chapter.title }}</text>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+
 		<view v-if="!isLoading && isControlsVisible" class="reader-footer">
 			<view class="footer-actions">
+				<button
+					class="footer-action"
+					:class="{ 'footer-action-active': isChapterDrawerOpen }"
+					@click="toggleFooterPanel('chapters')"
+				>
+					<view class="chapters-icon" aria-hidden="true">
+						<view /><view /><view />
+					</view>
+					<text class="footer-label">章节</text>
+				</button>
 				<button
 					class="footer-action"
 					:class="{ 'footer-action-active': activeFooterPanel === 'progress' }"
@@ -329,6 +365,24 @@
 			content: ''
 		}
 	)
+	const chapterItems = computed(() => {
+		const items = []
+		pages.value.forEach((page, pageIndex) => {
+			if (page.isChapterStart || !items.length) {
+				items.push({ title: page.chapterTitle || page.title || bookTitle.value, pageIndex })
+			}
+		})
+		return items
+	})
+	const currentChapterIndex = computed(() => {
+		let activeIndex = 0
+		chapterItems.value.forEach((chapter, index) => {
+			if (chapter.pageIndex <= currentPageIndex.value) activeIndex = index
+		})
+		return activeIndex
+	})
+	const activeChapterElementId = computed(() => `reader-chapter-${currentChapterIndex.value}`)
+	const isChapterDrawerOpen = computed(() => activeFooterPanel.value === 'chapters')
 
 	const formattedPageContent = computed(() => currentPage.value.content)
 
@@ -514,7 +568,10 @@
 		clearSelectedRange()
 		readerFontSize.value = nextFontSize
 		uni.setStorageSync(FONT_SIZE_STORAGE_KEY, nextFontSize)
-		pages.value = paginateBook(fullContent.value, bookTitle.value, getPageLimits())
+		pages.value = paginateBook(fullContent.value, bookTitle.value, {
+			...getPageLimits(),
+			chapters: activeBook.value?.chapters || []
+		})
 		currentPageIndex.value = Math.round(
 			(progress / 100) * Math.max(0, pages.value.length - 1)
 		)
@@ -524,6 +581,15 @@
 	function openSearch() {
 		activeFooterPanel.value = ''
 		isSearchOpen.value = !isSearchOpen.value
+	}
+
+	function closeChapterDrawer() {
+		if (activeFooterPanel.value === 'chapters') activeFooterPanel.value = ''
+	}
+
+	function goToChapter(pageIndex) {
+		changePage(pageIndex)
+		closeChapterDrawer()
 	}
 
 	function requireCommunityLogin() {
@@ -788,7 +854,10 @@
 			activeBookId.value = book.id
 			const content = await readBookContent(book)
 			fullContent.value = content
-			pages.value = paginateBook(content, book.title, getPageLimits())
+				pages.value = paginateBook(content, book.title, {
+					...getPageLimits(),
+					chapters: book.chapters || []
+				})
 			currentPageIndex.value = Math.round(
 				((book.progress || 0) / 100) * Math.max(0, pages.value.length - 1)
 			)
@@ -1292,6 +1361,90 @@
 		border-top: 1rpx solid rgba(47, 76, 60, 0.1);
 	}
 
+	.chapter-drawer-layer {
+		position: fixed;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		z-index: 10;
+		background: rgba(28, 38, 32, 0.2);
+	}
+
+	.chapter-drawer {
+		width: 82%;
+		max-width: 620rpx;
+		height: 100%;
+		padding-top: var(--reader-safe-top);
+		background: #fbfcfa;
+		box-shadow: 16rpx 0 44rpx rgba(28, 48, 37, 0.16);
+	}
+
+	.chapter-drawer-heading {
+		display: flex;
+		align-items: baseline;
+		height: 112rpx;
+		padding: 34rpx 34rpx 22rpx;
+		border-bottom: 1rpx solid #e2e7e3;
+	}
+
+	.chapter-drawer-title {
+		color: #26372e;
+		font-size: 32rpx;
+		font-weight: 650;
+	}
+
+	.chapter-drawer-count {
+		margin-left: 16rpx;
+		color: #89948e;
+		font-size: 20rpx;
+	}
+
+	.chapter-list {
+		display: block;
+		height: calc(100vh - 112rpx - var(--reader-safe-top));
+	}
+
+	.chapter-list-item {
+		display: flex;
+		align-items: center;
+		min-height: 94rpx;
+		padding: 22rpx 34rpx;
+		border-bottom: 1rpx solid #edf0ed;
+	}
+
+	.chapter-list-item-active {
+		background: #eef4ef;
+	}
+
+	.chapter-list-number {
+		width: 54rpx;
+		flex: 0 0 54rpx;
+		color: #9aa49e;
+		font-size: 19rpx;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.chapter-list-item-active .chapter-list-number {
+		color: #56806a;
+	}
+
+	.chapter-list-title {
+		display: -webkit-box;
+		overflow: hidden;
+		min-width: 0;
+		color: #3b4841;
+		font-size: 25rpx;
+		line-height: 1.5;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+	}
+
+	.chapter-list-item-active .chapter-list-title {
+		color: #2f6b4f;
+		font-weight: 600;
+	}
+
 	.search-panel {
 		position: fixed;
 		right: 0;
@@ -1486,6 +1639,22 @@
 	.font-icon {
 		font-family: "Songti SC", serif;
 		font-size: 25rpx;
+	}
+
+	.chapters-icon {
+		display: flex;
+		justify-content: space-between;
+		width: 30rpx;
+		height: 29rpx;
+		padding: 4rpx 0;
+		flex-direction: column;
+	}
+
+	.chapters-icon view {
+		width: 30rpx;
+		height: 3rpx;
+		background: currentColor;
+		border-radius: 2rpx;
 	}
 
 	.footer-label {

@@ -56,7 +56,7 @@
               <text v-if="book.sharing" class="sharing-label">
                 {{ book.sharing.status === 'closed' ? '已关闭' : `${book.sharing.memberCount || 1} 人共读` }}
               </text>
-              <text class="file-type">TXT</text>
+              <text class="file-type">{{ (book.format || 'txt').toUpperCase() }}</text>
             </view>
           </view>
 
@@ -98,7 +98,7 @@
           @click="handleImport"
         >
           <text class="plus">+</text>
-          <text>导入 TXT</text>
+          <text>导入图书</text>
         </button>
       </view>
     </view>
@@ -131,7 +131,7 @@
 <script setup>
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { pickTextFile } from '@/services/file-picker'
+import { pickBookFile } from '@/services/file-picker'
 import { ApiError, getAccessToken } from '@/services/auth'
 import {
   deleteBook,
@@ -229,7 +229,7 @@ function startSharing(book) {
 
   uni.showModal({
     title: '开启好友共读',
-    content: '开启后，TXT 文件以及这本书已有的本地评论和笔记都会上传云端，并对共读成员可见。是否继续？',
+    content: '开启后，图书正文以及这本书已有的本地评论和笔记都会上传云端，并对共读成员可见。是否继续？',
     confirmText: '开启共读',
     confirmColor: '#2F6B4F',
     success: ({ confirm }) => {
@@ -280,7 +280,7 @@ function handleAdd() {
   if (isImporting.value) return
 
   uni.showActionSheet({
-    itemList: ['从本地导入 TXT', '通过邀请码加入共读'],
+    itemList: ['从本地导入 TXT / EPUB', '通过邀请码加入共读'],
     success: ({ tapIndex }) => {
       if (tapIndex === 0) {
         handleImport()
@@ -374,7 +374,7 @@ async function handleImport() {
   isImporting.value = true
 
   try {
-    const file = await pickTextFile()
+    const file = await pickBookFile()
     uni.showLoading({ title: '正在导入', mask: true })
     const book = await saveImportedBook(file)
     refreshBookshelf()

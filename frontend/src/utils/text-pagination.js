@@ -1,11 +1,26 @@
 const CHAPTER_PATTERN = /^\s*((?:正文\s*)?第[0-9零一二三四五六七八九十百千万两〇○]+[章节回卷部篇][^\r\n]*|序章[^\r\n]*|楔子[^\r\n]*|前言[^\r\n]*|后记[^\r\n]*|番外[^\r\n]*)\s*$/gm
 
-function splitIntoSections(content, fallbackTitle) {
+function splitIntoSections(content, fallbackTitle, chapters = []) {
   const normalized = content
     .replace(/\r\n?/g, '\n')
     .replace(/\n(?:(?:[^\S\n]|\u200B|\uFEFF)*\n)+/g, '\n')
     .replace(/\n+/g, '\n')
     .trim()
+  const validChapters = chapters
+    .filter((chapter) => chapter && chapter.title && Number.isFinite(chapter.startOffset))
+    .sort((left, right) => left.startOffset - right.startOffset)
+
+  if (validChapters.length) {
+    return validChapters.map((chapter, index) => ({
+      title: chapter.title.trim(),
+      content: normalized.slice(
+        Math.max(0, chapter.startOffset),
+        validChapters[index + 1]?.startOffset ?? normalized.length
+      ).trim(),
+      includeTitle: true
+    })).filter((section) => section.content)
+  }
+
   const matches = Array.from(normalized.matchAll(CHAPTER_PATTERN))
 
   if (!matches.length) {
@@ -80,6 +95,8 @@ function paginateSection(
 
     pages.push({
       title: pages.length === 0 ? section.title : `${section.title}（续）`,
+      chapterTitle: section.title,
+      isChapterStart: pages.length === 0,
       content: pageLines.join('\n')
     })
     pageLines = []
@@ -131,7 +148,7 @@ export function paginateBook(
   const charactersPerLine = options.charactersPerLine || 18
   const pageLineLimit = options.pageLineLimit || 18
   const firstPageLineLimit = options.firstPageLineLimit || pageLineLimit
-  const sections = splitIntoSections(content, fallbackTitle)
+  const sections = splitIntoSections(content, fallbackTitle, options.chapters)
   const pages = sections.flatMap((section, index) =>
     paginateSection(
       section,

@@ -8,7 +8,8 @@ export function createReadingRoom(book, content) {
     data: {
       title: book.title,
       file_name: book.fileName,
-      content
+      content,
+      chapters: book.chapters || []
     }
   })
 }

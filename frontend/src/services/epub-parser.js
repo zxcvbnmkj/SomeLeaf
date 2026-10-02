@@ -1,6 +1,20 @@
 import JSZip from 'jszip'
 import { DOMParser } from '@xmldom/xmldom'
 
+const MAX_EXTRACTED_BYTES = 4 * 1024 * 1024
+
+function utf8ByteLength(value) {
+  let length = 0
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)
+    if (codePoint <= 0x7f) length += 1
+    else if (codePoint <= 0x7ff) length += 2
+    else if (codePoint <= 0xffff) length += 3
+    else length += 4
+  }
+  return length
+}
+
 function parseXml(source, label) {
   const document = new DOMParser().parseFromString(source, 'application/xml')
   const errors = document.getElementsByTagName('parsererror')
@@ -17,10 +31,6 @@ function resolveArchivePath(basePath, relativePath) {
     else resolved.push(part)
   })
   return resolved.join('/')
-}
-
-function childElements(node) {
-  return Array.from(node?.childNodes || []).filter((child) => child.nodeType === 1)
 }
 
 const BLOCK_TAGS = new Set([
@@ -62,9 +72,14 @@ function chapterFromXhtml(source, fallbackTitle) {
   )
   const chunks = []
   extractNodeText(body, chunks)
+  const title = cleanChapterText(heading?.textContent) || fallbackTitle
+  const extracted = cleanChapterText(chunks.join(''))
+  const content = extracted.startsWith(`${title}\n`)
+    ? extracted.slice(title.length + 1).trim()
+    : extracted
   return {
-    title: cleanChapterText(heading?.textContent) || fallbackTitle,
-    content: cleanChapterText(chunks.join(''))
+    title,
+    content
   }
 }
 
@@ -129,6 +144,9 @@ export async function parseEpub(buffer) {
     chapters.push({ title: chapter.title, startOffset: content.length })
     content += chapter.content
   })
+  if (utf8ByteLength(content) > MAX_EXTRACTED_BYTES) {
+    throw new Error('EPUB 解压后的正文不能超过 4 MB')
+  }
   return {
     title: metadataTitle(packageDocument),
     content,

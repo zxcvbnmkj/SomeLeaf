@@ -3,10 +3,16 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+class ChapterIndex(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    startOffset: int = Field(ge=0)
+
+
 class CreateRoomRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     file_name: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1)
+    chapters: list[ChapterIndex] = Field(default_factory=list, max_length=2000)
 
     @field_validator("title", "file_name")
     @classmethod
@@ -27,6 +33,7 @@ class SharedBookPublic(BaseModel):
     file_name: str
     file_size: int
     encoding: str
+    chapters: list[ChapterIndex]
 
 
 class RoomMemberPublic(BaseModel):

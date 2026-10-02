@@ -96,6 +96,7 @@ def room_public(room: ReadingRoom, user: User, db: Session) -> RoomPublic:
             file_name=book.file_name,
             file_size=book.file_size,
             encoding=book.encoding,
+            chapters=book.chapters or [],
         ),
     )
 
@@ -116,11 +117,11 @@ def active_book_content(room: ReadingRoom, db: Session) -> tuple[Book, str]:
     if book is None:
         raise HTTPException(status_code=500, detail="共读图书数据不完整")
     if book.file_deleted_at is not None:
-        raise HTTPException(status_code=410, detail="服务器上的 TXT 已被删除")
+        raise HTTPException(status_code=410, detail="服务器上的图书文件已被删除")
     try:
         return book, read_book_file(book.storage_key)
     except (OSError, UnicodeError):
-        raise HTTPException(status_code=500, detail="服务器无法读取 TXT 文件") from None
+        raise HTTPException(status_code=500, detail="服务器无法读取图书文件") from None
 
 
 def annotation_public(annotation: Annotation, username: str) -> AnnotationPublic:
@@ -161,15 +162,15 @@ def create_room(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> RoomPublic:
-    if Path(payload.file_name).suffix.lower() != ".txt":
-        raise HTTPException(status_code=422, detail="只能共享 TXT 文件")
+    if Path(payload.file_name).suffix.lower() not in {".txt", ".epub"}:
+        raise HTTPException(status_code=422, detail="只能共享 TXT 或 EPUB 文件")
     try:
         _, encoded, content_hash = prepare_book_content(payload.content)
         storage_key = write_book_file(encoded)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
     except OSError:
-        raise HTTPException(status_code=500, detail="服务器保存 TXT 文件失败") from None
+        raise HTTPException(status_code=500, detail="服务器保存图书文件失败") from None
 
     book = Book(
         owner_id=user.id,
@@ -179,6 +180,7 @@ def create_room(
         file_size=len(encoded),
         content_hash=content_hash,
         encoding="utf-8",
+        chapters=[chapter.model_dump() for chapter in payload.chapters] or None,
         normalization_version=1,
     )
     try:
@@ -271,7 +273,7 @@ def close_room(
     try:
         delete_book_file(book.storage_key)
     except OSError:
-        raise HTTPException(status_code=500, detail="删除服务器 TXT 文件失败") from None
+        raise HTTPException(status_code=500, detail="删除服务器图书文件失败") from None
 
     now = datetime.now()
     room.status = "closed"
