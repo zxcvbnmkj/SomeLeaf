@@ -57,6 +57,7 @@ npm run build:app
 
 # 调试小程序
 npm run dev:mp-weixin
+npm run build:mp-weixin
 ```
 
 ## 后端开发

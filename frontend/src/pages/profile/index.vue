@@ -33,7 +33,7 @@
           <view class="setting-row">
             <text class="setting-name">关于三叶</text>
             <view class="setting-tail">
-              <text class="setting-value">v0.1.4</text>
+              <text class="setting-value">v0.1.5</text>
               <view class="setting-arrow" aria-hidden="true" />
             </view>
           </view>
@@ -118,6 +118,16 @@
       </view>
 
       <view v-if="!currentUser" class="section feedback-section">
+        <view class="setting-link" @click="openPage('/pages/about/index')">
+          <view class="setting-row">
+            <text class="setting-name">关于三叶</text>
+            <view class="setting-tail">
+              <text class="setting-value">v0.1.5</text>
+              <view class="setting-arrow" aria-hidden="true" />
+            </view>
+          </view>
+        </view>
+        <view class="divider" />
         <view class="setting-link" @click="openPage('/pages/feedback/index')">
           <view class="setting-row">
             <text class="setting-name">意见反馈</text>

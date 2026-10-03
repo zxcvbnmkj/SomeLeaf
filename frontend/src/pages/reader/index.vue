@@ -354,8 +354,8 @@
 
 		return {
 			charactersPerLine: Math.max(10, Math.floor(charactersPerLine * 0.9)),
-			pageLineLimit: Math.max(6, Math.floor(normalLines * 0.9)),
-			firstPageLineLimit: Math.max(4, Math.floor(firstPageLines * 0.9))
+			pageLineLimit: Math.max(6, normalLines),
+			firstPageLineLimit: Math.max(4, firstPageLines)
 		}
 	}
 

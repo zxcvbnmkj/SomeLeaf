@@ -140,8 +140,14 @@ function pickFromWechat() {
           return
         }
 
+        const filePath = file.path || file.tempFilePath
+        if (!filePath) {
+          reject(new Error('微信没有返回所选文件路径'))
+          return
+        }
+
         uni.getFileSystemManager().readFile({
-          filePath: file.path,
+          filePath,
           success: async ({ data }) => {
             try {
               resolve(await createPickedFile(file.name, file.size, data))
@@ -149,7 +155,10 @@ function pickFromWechat() {
               reject(error)
             }
           },
-          fail: () => reject(new Error('无法读取所选图书文件'))
+          fail: (error) => {
+            console.error('[SomeLeaf] 微信小程序读取文件失败', error)
+            reject(new Error('无法读取所选图书文件，请重试'))
+          }
         })
       },
       fail: (error) => {

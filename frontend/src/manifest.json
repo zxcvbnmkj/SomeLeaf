@@ -2,7 +2,7 @@
     "name" : "SomeLeaf",
     "appid" : "__UNI__58C95E0",
     "description" : "三叶，一款轻量级多平台阅读软件",
-    "versionName" : "0.1.0",
+    "versionName" : "0.1.5",
     "versionCode" : "10",
     "transformPx" : false,
     "vueVersion" : "3",
@@ -47,6 +47,9 @@
                         "spotlight@3x" : "unpackage/res/icons/120x120.png"
                     }
                 }
+            },
+            "ios" : {
+                "dSYMs" : false
             }
         }
     },
@@ -54,11 +57,12 @@
         "title" : "SomeLeaf - 三叶"
     },
     "mp-weixin" : {
-        "appid" : "wx362d6bfefc1d26d4",
+        "appid" : "wx7b7897aeee98401b",
         "setting" : {
             "postcss" : true,
             "minified" : true,
-            "urlCheck" : false
+            "urlCheck" : false,
+            "lazyCodeLoading" : "requiredComponents"
         }
     }
 }

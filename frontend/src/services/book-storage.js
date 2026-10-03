@@ -2,6 +2,67 @@ import { clearLocalReadingData } from '@/services/local-reading'
 
 const BOOKS_KEY = 'someleaf:books'
 const CONTENT_KEY_PREFIX = 'someleaf:book-content:'
+const CONTENT_META_SUFFIX = ':meta'
+const CONTENT_CHUNK_SUFFIX = ':chunk:'
+const CONTENT_CHUNK_SIZE = 200 * 1024
+
+function contentMetaKey(id) {
+  return `${CONTENT_KEY_PREFIX}${id}${CONTENT_META_SUFFIX}`
+}
+
+function contentChunkKey(id, index) {
+  return `${CONTENT_KEY_PREFIX}${id}${CONTENT_CHUNK_SUFFIX}${index}`
+}
+
+function removeStoredContent(id) {
+  // #ifdef MP-WEIXIN
+  const meta = uni.getStorageSync(contentMetaKey(id))
+  if (meta && Number.isInteger(meta.chunkCount)) {
+    for (let index = 0; index < meta.chunkCount; index += 1) {
+      uni.removeStorageSync(contentChunkKey(id, index))
+    }
+  }
+  uni.removeStorageSync(contentMetaKey(id))
+  // #endif
+
+  uni.removeStorageSync(`${CONTENT_KEY_PREFIX}${id}`)
+}
+
+function writeStoredContent(id, content) {
+  // 微信小程序单个 Storage key 约 1 MB，4 MB 图书必须拆分保存。
+  // #ifdef MP-WEIXIN
+  const chunkCount = Math.max(1, Math.ceil(content.length / CONTENT_CHUNK_SIZE))
+
+  try {
+    for (let index = 0; index < chunkCount; index += 1) {
+      uni.setStorageSync(
+        contentChunkKey(id, index),
+        content.slice(index * CONTENT_CHUNK_SIZE, (index + 1) * CONTENT_CHUNK_SIZE)
+      )
+    }
+    uni.setStorageSync(contentMetaKey(id), { version: 1, chunkCount })
+  } catch (error) {
+    removeStoredContent(id)
+    throw new Error('本地存储空间不足，请删除不需要的图书后重试')
+  }
+  return
+  // #endif
+
+  uni.setStorageSync(`${CONTENT_KEY_PREFIX}${id}`, content)
+}
+
+function readStoredContent(id) {
+  // #ifdef MP-WEIXIN
+  const meta = uni.getStorageSync(contentMetaKey(id))
+  if (meta && Number.isInteger(meta.chunkCount)) {
+    return Array.from({ length: meta.chunkCount }, (_, index) =>
+      uni.getStorageSync(contentChunkKey(id, index)) || ''
+    ).join('')
+  }
+  // #endif
+
+  return uni.getStorageSync(`${CONTENT_KEY_PREFIX}${id}`) || ''
+}
 
 function createBookId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -125,7 +186,7 @@ export async function saveImportedBook(file) {
   let filePath = ''
 
   // #ifdef H5 || MP-WEIXIN
-  uni.setStorageSync(`${CONTENT_KEY_PREFIX}${id}`, file.content)
+  writeStoredContent(id, file.content)
   // #endif
 
   // #ifdef APP-PLUS
@@ -162,7 +223,7 @@ export async function saveJoinedBook(result) {
   let filePath = ''
 
   // #ifdef H5 || MP-WEIXIN
-  uni.setStorageSync(`${CONTENT_KEY_PREFIX}${id}`, result.content)
+  writeStoredContent(id, result.content)
   // #endif
 
   // #ifdef APP-PLUS
@@ -194,7 +255,7 @@ export async function readBookContent(book) {
   }
 
   // #ifdef H5 || MP-WEIXIN
-  return uni.getStorageSync(`${CONTENT_KEY_PREFIX}${book.id}`) || ''
+  return readStoredContent(book.id)
   // #endif
 
   // #ifdef APP-PLUS
@@ -212,7 +273,7 @@ export async function deleteBook(book) {
   clearLocalReadingData(book.id)
 
   // #ifdef H5 || MP-WEIXIN
-  uni.removeStorageSync(`${CONTENT_KEY_PREFIX}${book.id}`)
+  removeStoredContent(book.id)
   // #endif
 
   // #ifdef APP-PLUS

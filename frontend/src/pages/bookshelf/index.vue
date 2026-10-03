@@ -103,6 +103,46 @@
       </view>
     </view>
 
+    <view v-if="isAddMenuVisible" class="add-menu-layer" @tap="closeAddMenu">
+      <view class="add-menu" @tap.stop="stopAddMenuTap">
+        <view class="add-menu-handle" />
+        <view class="add-menu-heading">
+          <view>
+            <text class="add-menu-title">添加到书架</text>
+            <text class="add-menu-subtitle">选择一种方式开始阅读</text>
+          </view>
+          <button class="add-menu-close" aria-label="关闭" @tap="closeAddMenu">×</button>
+        </view>
+
+        <view class="add-menu-options">
+          <view class="add-menu-option" @tap="chooseLocalImport">
+            <view class="add-option-icon add-option-file" aria-hidden="true">
+              <view class="file-icon-fold" />
+              <view class="file-icon-line file-icon-line-one" />
+              <view class="file-icon-line file-icon-line-two" />
+            </view>
+            <view class="add-option-copy">
+              <text class="add-option-title">导入本地图书</text>
+              <text class="add-option-desc">TXT / EPUB，保存在本机</text>
+            </view>
+            <view class="add-option-arrow" aria-hidden="true" />
+          </view>
+
+          <view class="add-menu-option" @tap="chooseSharedJoin">
+            <view class="add-option-icon add-option-link" aria-hidden="true">
+              <view class="link-ring link-ring-left" />
+              <view class="link-ring link-ring-right" />
+            </view>
+            <view class="add-option-copy">
+              <text class="add-option-title">加入好友共读</text>
+              <text class="add-option-desc">输入 6 位邀请码加入房间</text>
+            </view>
+            <view class="add-option-arrow" aria-hidden="true" />
+          </view>
+        </view>
+      </view>
+    </view>
+
     <view class="bottom-nav">
       <view class="nav-item nav-item-active">
         <view class="nav-icon" aria-hidden="true">
@@ -149,6 +189,7 @@ import { syncLocalReadingToRoom } from '@/services/reading-sync'
 
 const books = ref([])
 const isImporting = ref(false)
+const isAddMenuVisible = ref(false)
 const deletingBookId = ref('')
 let suppressNextTap = false
 
@@ -278,17 +319,23 @@ async function performStartSharing(book) {
 
 function handleAdd() {
   if (isImporting.value) return
+  isAddMenuVisible.value = true
+}
 
-  uni.showActionSheet({
-    itemList: ['从本地导入 TXT / EPUB', '通过邀请码加入共读'],
-    success: ({ tapIndex }) => {
-      if (tapIndex === 0) {
-        handleImport()
-      } else if (tapIndex === 1) {
-        promptInviteCode()
-      }
-    }
-  })
+function closeAddMenu() {
+  isAddMenuVisible.value = false
+}
+
+function stopAddMenuTap() {}
+
+function chooseLocalImport() {
+  closeAddMenu()
+  handleImport()
+}
+
+function chooseSharedJoin() {
+  closeAddMenu()
+  promptInviteCode()
 }
 
 function promptInviteCode() {
@@ -374,6 +421,7 @@ async function handleImport() {
   isImporting.value = true
 
   try {
+    uni.showLoading({ title: '正在读取文件', mask: true })
     const file = await pickBookFile()
     uni.showLoading({ title: '正在导入', mask: true })
     const book = await saveImportedBook(file)
@@ -903,6 +951,208 @@ onShow(refreshBookshelf)
   height: 28rpx;
   line-height: 28rpx;
   text-align: center;
+}
+
+.add-menu-layer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  background: rgba(25, 39, 31, 0.3);
+}
+
+.add-menu {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 14rpx 36rpx calc(28rpx + env(safe-area-inset-bottom));
+  background: #fbfcfa;
+  border-radius: 28rpx 28rpx 0 0;
+  box-shadow: 0 -16rpx 42rpx rgba(34, 59, 45, 0.18);
+}
+
+.add-menu-handle {
+  width: 72rpx;
+  height: 7rpx;
+  margin: 0 auto 30rpx;
+  background: #d4ddd6;
+  border-radius: 8rpx;
+}
+
+.add-menu-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4rpx 24rpx;
+}
+
+.add-menu-title,
+.add-menu-subtitle {
+  display: block;
+}
+
+.add-menu-title {
+  color: #20382b;
+  font-size: 34rpx;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.add-menu-subtitle {
+  margin-top: 7rpx;
+  color: #8a958e;
+  font-size: 21rpx;
+}
+
+.add-menu-close {
+  width: 58rpx;
+  height: 58rpx;
+  margin: 0;
+  padding: 0;
+  color: #748279;
+  background: #eef3ef;
+  border: 0;
+  border-radius: 50%;
+  font-size: 38rpx;
+  font-weight: 300;
+  line-height: 52rpx;
+}
+
+.add-menu-close::after {
+  border: 0;
+}
+
+.add-menu-options {
+  display: flex;
+  gap: 18rpx;
+  flex-direction: column;
+}
+
+.add-menu-option {
+  display: flex;
+  align-items: center;
+  min-height: 126rpx;
+  padding: 20rpx 24rpx;
+  background: #ffffff;
+  border: 1rpx solid #e0e8e1;
+  border-radius: 14rpx;
+  box-shadow: 0 7rpx 18rpx rgba(41, 69, 52, 0.05);
+}
+
+.add-menu-option:active {
+  background: #f1f7f2;
+  border-color: #c6d9ca;
+}
+
+.add-option-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76rpx;
+  height: 76rpx;
+  margin-right: 22rpx;
+  flex: 0 0 76rpx;
+  background: #eaf3ec;
+  border-radius: 20rpx;
+}
+
+.add-option-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.add-option-title,
+.add-option-desc {
+  display: block;
+}
+
+.add-option-title {
+  color: #294434;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.add-option-desc {
+  overflow: hidden;
+  margin-top: 8rpx;
+  color: #8a978f;
+  font-size: 21rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-option-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  margin-left: 16rpx;
+  border-top: 2rpx solid #7f9586;
+  border-right: 2rpx solid #7f9586;
+  transform: rotate(45deg);
+}
+
+.add-option-file {
+  background: #eef3e7;
+}
+
+.add-option-file::before {
+  width: 34rpx;
+  height: 42rpx;
+  content: '';
+  background: #5e8d68;
+  border-radius: 5rpx;
+}
+
+.file-icon-fold {
+  position: absolute;
+  top: 19rpx;
+  right: 21rpx;
+  width: 12rpx;
+  height: 12rpx;
+  background: #dbe9d7;
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.file-icon-line {
+  position: absolute;
+  left: 28rpx;
+  width: 20rpx;
+  height: 3rpx;
+  background: #dbe9d7;
+  border-radius: 3rpx;
+}
+
+.file-icon-line-one {
+  top: 42rpx;
+}
+
+.file-icon-line-two {
+  top: 50rpx;
+  width: 15rpx;
+}
+
+.add-option-link {
+  background: #e8f1ee;
+}
+
+.link-ring {
+  position: absolute;
+  width: 25rpx;
+  height: 15rpx;
+  border: 5rpx solid #4d8065;
+  border-radius: 15rpx;
+  transform: rotate(-42deg);
+}
+
+.link-ring-left {
+  left: 17rpx;
+}
+
+.link-ring-right {
+  right: 17rpx;
 }
 
 .nav-books {
