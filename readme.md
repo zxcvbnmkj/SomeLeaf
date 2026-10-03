@@ -62,26 +62,26 @@ npm run build:mp-weixin
 
 ## 后端开发
 
-初始化 Python 环境：
+- 初始化 Python 环境：
 
 ```bash
 cd backend
 pdm init --python /opt/miniforge3/envs/py312/bin/python
 ```
 
-配置数据库连接后执行迁移：
+- 配置数据库连接后执行迁移：
 
 ```bash
 pdm run alembic upgrade head
 ```
 
-启动本地开发服务：
-
-```bash
-pdm run uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+- 把关键文件上传到服务器
+```commandline
+scp -P 22 -r /Users/nowcoder/username/someleaf/backend ubuntu@ip:~/servers/some_leaf
+scp -P 22 -r /Users/nowcoder/zhangli/someleaf/pdm.lock ubuntu@124.223.10.25:~/servers/some_leaf
 ```
 
-生产环境部署前，将生产配置加载为 `.env`，再执行迁移并启动服务：
+- 生产环境部署前，将生产配置加载为 `.env`，再执行迁移并启动服务：
 
 ```bash
 cp .env_prod .env

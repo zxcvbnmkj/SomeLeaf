@@ -346,14 +346,21 @@
 		const fontSize = readerFontSize.value * rpx
 		const lineHeight = readerFontSize.value * 1.75 * rpx
 		const charactersPerLine = Math.max(10, Math.floor(contentWidth / fontSize))
-		const normalLines = Math.max(6, Math.floor(contentHeight / lineHeight))
+		// App WebView 的实际行盒高度可能比 CSS 理论值略大，预留一行避免底部越界。
+		const normalLines = Math.max(6, Math.floor(contentHeight / lineHeight) - 1)
 		const firstPageLines = Math.max(
 			4,
-			Math.floor((contentHeight - 190 * rpx) / lineHeight)
+			Math.floor((contentHeight - 190 * rpx) / lineHeight) - 1
 		)
+		let widthSafetyFactor = 0.9
+		// App 使用设备 WebView 实际渲染正文，按 App 的字体宽度校准分页。
+		// #ifdef APP-PLUS
+		widthSafetyFactor = 1
+		// #endif
 
 		return {
-			charactersPerLine: Math.max(10, Math.floor(charactersPerLine * 0.9)),
+			// App 中保留少量余量，避免正文贴边或被设备安全区域截断。
+			charactersPerLine: Math.max(10, Math.floor(charactersPerLine * widthSafetyFactor)),
 			pageLineLimit: Math.max(6, normalLines),
 			firstPageLineLimit: Math.max(4, firstPageLines)
 		}

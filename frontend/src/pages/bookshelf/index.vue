@@ -30,17 +30,32 @@
         >+</button>
       </view>
 
+      <view class="category-tabs" role="tablist">
+        <view
+          v-for="category in categories"
+          :key="category.key"
+          class="category-tab"
+          :class="{ 'category-tab-active': activeCategory === category.key }"
+          role="tab"
+          :aria-selected="activeCategory === category.key"
+          @tap="activeCategory = category.key"
+        >
+          <text>{{ category.label }}</text>
+          <text class="category-count">{{ category.count }}</text>
+        </view>
+      </view>
+
       <view class="shelf-line">
         <view class="shelf-label">
           <view class="label-line" />
-          <text>全部图书</text>
+          <text>{{ activeCategoryLabel }}</text>
         </view>
         <text class="sort-label">最近阅读</text>
       </view>
 
-      <view v-if="books.length" class="book-list">
+      <view v-if="filteredBooks.length" class="book-list">
         <view
-          v-for="book in books"
+          v-for="book in filteredBooks"
           :key="book.id"
           class="book-card"
           @click="handleBookTap(book.id)"
@@ -89,16 +104,16 @@
           <view class="ground-shadow" />
         </view>
 
-        <text class="empty-title">书架还是空的</text>
-        <text class="empty-copy">从一本喜欢的小说开始吧</text>
+        <text class="empty-title">{{ emptyTitle }}</text>
+        <text class="empty-copy">{{ emptyCopy }}</text>
 
         <button
           class="import-button"
           :disabled="isImporting"
-          @click="handleImport"
+          @click="activeCategory === 'shared' ? chooseSharedJoin() : handleImport()"
         >
           <text class="plus">+</text>
-          <text>导入图书</text>
+          <text>{{ activeCategory === 'shared' ? '加入共读' : '导入图书' }}</text>
         </button>
       </view>
     </view>
@@ -169,7 +184,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { pickBookFile } from '@/services/file-picker'
 import { ApiError, getAccessToken } from '@/services/auth'
@@ -188,6 +203,7 @@ import {
 import { syncLocalReadingToRoom } from '@/services/reading-sync'
 
 const books = ref([])
+const activeCategory = ref('all')
 const isImporting = ref(false)
 const isAddMenuVisible = ref(false)
 const deletingBookId = ref('')
@@ -196,6 +212,45 @@ let suppressNextTap = false
 function refreshBookshelf() {
   books.value = listBooks()
 }
+
+const categoryDefinitions = [
+  { key: 'all', label: '全部图书' },
+  { key: 'local', label: '本地图书' },
+  { key: 'shared', label: '共读图书' }
+]
+
+const filteredBooks = computed(() => {
+  if (activeCategory.value === 'local') {
+    return books.value.filter((book) => !book.sharing)
+  }
+  if (activeCategory.value === 'shared') {
+    return books.value.filter((book) => Boolean(book.sharing))
+  }
+  return books.value
+})
+
+const categories = computed(() => categoryDefinitions.map((category) => ({
+  ...category,
+  count: category.key === 'all'
+    ? books.value.length
+    : books.value.filter((book) => category.key === 'shared' ? Boolean(book.sharing) : !book.sharing).length
+})))
+
+const activeCategoryLabel = computed(() =>
+  categoryDefinitions.find((category) => category.key === activeCategory.value)?.label || '全部图书'
+)
+
+const emptyTitle = computed(() => {
+  if (activeCategory.value === 'local') return '还没有本地图书'
+  if (activeCategory.value === 'shared') return '还没有共读图书'
+  return '书架还是空的'
+})
+
+const emptyCopy = computed(() => {
+  if (activeCategory.value === 'local') return '从本地导入一本喜欢的小说吧'
+  if (activeCategory.value === 'shared') return '加入好友共读后，图书会出现在这里'
+  return '从一本喜欢的小说开始吧'
+})
 
 function formatFileSize(bytes) {
   if (!bytes) return '未知大小'
@@ -345,6 +400,7 @@ function promptInviteCode() {
     title: '加入好友共读',
     editable: true,
     placeholderText: '请输入 6 位邀请码',
+    cancelText: '取消',
     confirmText: '加入',
     success: ({ confirm, content }) => {
       if (!confirm) return
@@ -583,13 +639,53 @@ onShow(refreshBookshelf)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 56rpx;
-  padding-bottom: 20rpx;
+  margin-top: 20rpx;
+}
+
+.category-tabs {
+  display: flex;
+  margin-top: 42rpx;
   border-bottom: 1rpx solid #dde3de;
 }
 
-.shelf-label {
+.category-tab {
+  position: relative;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  flex: 1;
+  padding: 0 6rpx 20rpx;
+  color: #8a958e;
+  font-size: 25rpx;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.category-count {
+  margin-left: 6rpx;
+  color: #a3aca6;
+  font-size: 20rpx;
+}
+
+.category-tab-active {
+  color: #2f6b4f;
+  font-weight: 650;
+}
+
+.category-tab-active::after {
+  position: absolute;
+  right: 25%;
+  bottom: -1rpx;
+  left: 25%;
+  height: 5rpx;
+  background: #3f805e;
+  border-radius: 5rpx 5rpx 0 0;
+  content: '';
+}
+
+.shelf-label {
+  display: none;
   align-items: center;
   gap: 12rpx;
   color: #233e31;

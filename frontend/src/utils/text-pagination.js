@@ -74,6 +74,22 @@ function createDisplayLines(section, isFirstSection) {
   return lines
 }
 
+function findBreakPosition(text, limit) {
+  if (text.length <= limit) return text.length
+
+  // 页面边界尽量落在完整句子后，只有超长且没有合适标点时才按字符硬切。
+  const minimum = Math.floor(limit * 0.65)
+  const punctuation = /[。！？；：…」』）】》”’]/g
+  let breakPosition = -1
+  let match
+
+  while ((match = punctuation.exec(text.slice(0, limit + 1)))) {
+    breakPosition = match.index + 1
+  }
+
+  return breakPosition >= minimum ? breakPosition : limit
+}
+
 function paginateSection(
   section,
   charactersPerLine,
@@ -128,9 +144,11 @@ function paginateSection(
         usedLines += Math.ceil(remainingText.length / charactersPerLine)
         remainingText = ''
       } else {
-        pageLines.push(remainingText.slice(0, availableCharacters))
-        remainingText = remainingText.slice(availableCharacters)
-        usedLines += availableLines
+        const breakPosition = findBreakPosition(remainingText, availableCharacters)
+        const pageText = remainingText.slice(0, breakPosition)
+        pageLines.push(pageText)
+        remainingText = remainingText.slice(breakPosition)
+        usedLines += Math.ceil(pageText.length / charactersPerLine)
         pushPage()
       }
     }
