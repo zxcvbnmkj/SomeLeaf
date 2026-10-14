@@ -60,6 +60,8 @@
           class="book-card"
           @click="handleBookTap(book.id)"
           @longpress="showBookActions(book)"
+          @touchend="releaseLongPress"
+          @touchcancel="releaseLongPress"
         >
           <view class="card-heading">
             <view class="card-leaf" aria-hidden="true">
@@ -158,6 +160,57 @@
       </view>
     </view>
 
+    <view v-if="actionBook" class="add-menu-layer" @tap="closeBookActions">
+      <view class="add-menu" @tap.stop="stopAddMenuTap">
+        <view class="add-menu-handle" />
+        <view class="add-menu-heading">
+          <view class="book-action-heading">
+            <text class="add-menu-title book-action-title">{{ actionBook.title }}</text>
+            <text class="add-menu-subtitle">{{ bookActionSubtitle }}</text>
+          </view>
+          <button class="add-menu-close" aria-label="关闭" @tap="closeBookActions">×</button>
+        </view>
+
+        <view class="add-menu-options">
+          <view v-if="actionBook.sharing" class="add-menu-option" @tap="chooseBookAction('room')">
+            <view class="add-option-icon add-option-room" aria-hidden="true">
+              <view class="room-person room-person-back" />
+              <view class="room-person room-person-front" />
+            </view>
+            <view class="add-option-copy">
+              <text class="add-option-title">查看共读信息</text>
+              <text class="add-option-desc">邀请码、共读成员与房间状态</text>
+            </view>
+            <view class="add-option-arrow" aria-hidden="true" />
+          </view>
+
+          <view v-else class="add-menu-option" @tap="chooseBookAction('share')">
+            <view class="add-option-icon add-option-link" aria-hidden="true">
+              <view class="link-ring link-ring-left" />
+              <view class="link-ring link-ring-right" />
+            </view>
+            <view class="add-option-copy">
+              <text class="add-option-title">开启好友共读</text>
+              <text class="add-option-desc">生成邀请码，和好友一起读这本书</text>
+            </view>
+            <view class="add-option-arrow" aria-hidden="true" />
+          </view>
+
+          <view class="add-menu-option add-menu-option-danger" @tap="chooseBookAction('delete')">
+            <view class="add-option-icon add-option-delete" aria-hidden="true">
+              <view class="trash-lid" />
+              <view class="trash-body" />
+            </view>
+            <view class="add-option-copy">
+              <text class="add-option-title">{{ actionBook.sharing ? '删除本地图书' : '删除图书' }}</text>
+              <text class="add-option-desc">{{ actionBook.sharing ? '仅删除本机副本，共读房间不受影响' : '从书架移除，删除后无法恢复' }}</text>
+            </view>
+            <view class="add-option-arrow" aria-hidden="true" />
+          </view>
+        </view>
+      </view>
+    </view>
+
     <view class="bottom-nav">
       <view class="nav-item nav-item-active">
         <view class="nav-icon" aria-hidden="true">
@@ -207,6 +260,7 @@ const activeCategory = ref('all')
 const isImporting = ref(false)
 const isAddMenuVisible = ref(false)
 const deletingBookId = ref('')
+const actionBook = ref(null)
 let suppressNextTap = false
 
 function refreshBookshelf() {
@@ -269,32 +323,49 @@ function handleBookTap(id) {
   openBook(id)
 }
 
+const bookActionSubtitle = computed(() => {
+  const book = actionBook.value
+  if (!book) return ''
+  const parts = [(book.format || 'txt').toUpperCase(), formatFileSize(book.fileSize)]
+  if (book.sharing) {
+    parts.push(book.sharing.status === 'closed' ? '共读已关闭' : `${book.sharing.memberCount || 1} 人共读`)
+  }
+  return parts.join(' · ')
+})
+
 function showBookActions(book) {
   if (deletingBookId.value) return
 
+  // 长按松手后还会派发一次点击：既不能打开图书，也不能落在刚弹出的遮罩上把菜单关掉。
+  // 手指可能按住很久，所以等松手（releaseLongPress）后再解除。
   suppressNextTap = true
+  actionBook.value = book
+}
 
-  const actions = book.sharing
-    ? ['查看共读信息', '删除本地图书']
-    : ['开启好友共读', '删除图书']
+function releaseLongPress() {
+  if (!suppressNextTap) return
+  setTimeout(() => {
+    suppressNextTap = false
+  }, 300)
+}
 
-  uni.showActionSheet({
-    itemList: actions,
-    success: ({ tapIndex }) => {
-      if (tapIndex === 0 && book.sharing) {
-        openRoom(book)
-      } else if (tapIndex === 0) {
-        startSharing(book)
-      } else if (tapIndex === 1) {
-        confirmDelete(book)
-      }
-    },
-    complete: () => {
-      setTimeout(() => {
-        suppressNextTap = false
-      }, 300)
-    }
-  })
+function closeBookActions() {
+  if (suppressNextTap) return
+  actionBook.value = null
+}
+
+function chooseBookAction(action) {
+  const book = actionBook.value
+  if (!book || suppressNextTap) return
+  actionBook.value = null
+
+  if (action === 'room') {
+    openRoom(book)
+  } else if (action === 'share') {
+    startSharing(book)
+  } else if (action === 'delete') {
+    confirmDelete(book)
+  }
 }
 
 function requireLogin() {
@@ -1249,6 +1320,118 @@ onShow(refreshBookshelf)
 
 .link-ring-right {
   right: 17rpx;
+}
+
+.book-action-heading {
+  min-width: 0;
+  flex: 1;
+  margin-right: 20rpx;
+}
+
+.book-action-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-option-room {
+  background: #e8f1ee;
+}
+
+.room-person {
+  position: absolute;
+  width: 26rpx;
+  height: 30rpx;
+}
+
+.room-person::before,
+.room-person::after {
+  position: absolute;
+  left: 50%;
+  content: '';
+  transform: translateX(-50%);
+}
+
+.room-person::before {
+  top: 0;
+  width: 13rpx;
+  height: 13rpx;
+  border-radius: 50%;
+}
+
+.room-person::after {
+  bottom: 0;
+  width: 26rpx;
+  height: 13rpx;
+  border-radius: 13rpx 13rpx 4rpx 4rpx;
+}
+
+.room-person-back {
+  top: 20rpx;
+  left: 30rpx;
+}
+
+.room-person-back::before,
+.room-person-back::after {
+  background: #9cbca9;
+}
+
+.room-person-front {
+  top: 26rpx;
+  left: 20rpx;
+}
+
+.room-person-front::before,
+.room-person-front::after {
+  background: #4d8065;
+}
+
+.add-menu-option-danger:active {
+  background: #fbf1ef;
+  border-color: #ebcfca;
+}
+
+.add-menu-option-danger .add-option-title {
+  color: #a4473d;
+}
+
+.add-menu-option-danger .add-option-arrow {
+  border-color: #c08a83;
+}
+
+.add-option-delete {
+  background: #f8ebe8;
+}
+
+.trash-lid {
+  position: absolute;
+  top: 22rpx;
+  left: 24rpx;
+  width: 28rpx;
+  height: 4rpx;
+  background: #b4574b;
+  border-radius: 3rpx;
+}
+
+.trash-lid::before {
+  position: absolute;
+  top: -5rpx;
+  left: 9rpx;
+  width: 10rpx;
+  height: 5rpx;
+  content: '';
+  background: #b4574b;
+  border-radius: 3rpx 3rpx 0 0;
+}
+
+.trash-body {
+  position: absolute;
+  top: 29rpx;
+  left: 27rpx;
+  width: 22rpx;
+  height: 26rpx;
+  background: #b4574b;
+  border-radius: 0 0 5rpx 5rpx;
 }
 
 .nav-books {

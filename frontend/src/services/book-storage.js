@@ -160,10 +160,15 @@ export function findBook(id) {
   return listBooks().find((book) => book.id === id)
 }
 
-export function updateBookProgress(id, progress) {
+// progress 是百分比（用于显示）；readingOffset 是当前页第一个字在规范化正文中的位置，
+// 用它恢复阅读位置，不受分页方式和字号变化影响。
+export function updateBookProgress(id, progress, readingOffset) {
   const normalizedProgress = Math.max(0, Math.min(100, Math.round(progress)))
+  const position = Number.isInteger(readingOffset) && readingOffset >= 0
+    ? { readingOffset }
+    : {}
   const books = listBooks().map((book) =>
-    book.id === id ? { ...book, progress: normalizedProgress } : book
+    book.id === id ? { ...book, progress: normalizedProgress, ...position } : book
   )
 
   uni.setStorageSync(BOOKS_KEY, books)

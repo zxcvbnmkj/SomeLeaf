@@ -45,7 +45,8 @@
 			<view class="article">
 				<text
 					class="book-content"
-					:user-select="Boolean(activeBook)"
+					:class="{ 'custom-selection': useCustomSelection }"
+					:user-select="Boolean(activeBook) && !useCustomSelection"
 					:style="bookContentStyle"
 				><text v-for="(segment, segmentIndex) in highlightedSegments"
 						:key="segmentIndex"
@@ -232,6 +233,9 @@
 	import { syncLocalReadingToRoom } from '@/services/reading-sync'
 	import ReaderCommunityPanel from '@/components/ReaderCommunityPanel.vue'
 	import {
+		findPageIndexBySourceOffset,
+		normalizeBookContent,
+		pageRangesForSource,
 		paginateBook
 	} from '@/utils/text-pagination'
 
@@ -272,6 +276,11 @@
 	const readerPageStyle = {
 		'--reader-safe-top': `${readerSafeTop}px`
 	}
+	// App 端选中文字时系统会弹出自带的"复制 / 搜索"菜单，改由 renderjs 自绘选区（见 selectionBridge）。
+	let useCustomSelection = false
+	// #ifdef APP-PLUS
+	useCustomSelection = true
+	// #endif
 	const FONT_SIZE_STORAGE_KEY = 'someleaf:reader-font-size'
 	const storedFontSize = Number(uni.getStorageSync(FONT_SIZE_STORAGE_KEY))
 	if (storedFontSize >= 26 && storedFontSize <= 42) {
@@ -285,16 +294,7 @@
 		lineHeight: 1.75
 	}))
 
-	function normalizeForSharing(content) {
-		return String(content || '')
-			.replace(/^\uFEFF/, '')
-			.replace(/\r\n?/g, '\n')
-			.replace(/\n(?:(?:[^\S\n]|\u200B|\uFEFF)*\n)+/g, '\n')
-			.replace(/\n+/g, '\n')
-			.trim()
-	}
-
-	const normalizedContent = computed(() => normalizeForSharing(fullContent.value))
+	const normalizedContent = computed(() => normalizeBookContent(fullContent.value))
 	const communityRoom = computed(() => {
 		const sharing = activeBook.value?.sharing
 		if (!sharing) return null
@@ -317,50 +317,59 @@
 			top: `${selectionButtonPosition.value.top}px`
 		}
 	})
-	const currentOffset = computed(() => {
-		if (!normalizedContent.value.length || !pages.value.length) return 0
-		let offset = Math.floor(
-			(currentPageIndex.value / pages.value.length) * normalizedContent.value.length
-		)
-		const currentCodeUnit = normalizedContent.value.charCodeAt(offset)
-		const previousCodeUnit = normalizedContent.value.charCodeAt(offset - 1)
-		if (
-			currentCodeUnit >= 0xDC00 && currentCodeUnit <= 0xDFFF &&
-			previousCodeUnit >= 0xD800 && previousCodeUnit <= 0xDBFF
-		) {
-			offset -= 1
+	// 当前页第一个字在规范化全文中的位置。
+	const currentOffset = computed(() => currentPage.value.sourceStart ?? 0)
+
+	const READER_FONT_FAMILY = '"Songti SC", "STSong", serif'
+	let textMeasureContext = null
+
+	function getTextMeasureContext() {
+		if (textMeasureContext) return textMeasureContext
+		try {
+			// #ifdef H5
+			textMeasureContext = document.createElement('canvas').getContext('2d')
+			// #endif
+			// #ifdef MP-WEIXIN
+			textMeasureContext = wx.createOffscreenCanvas({ type: '2d', width: 1, height: 1 }).getContext('2d')
+			// #endif
+		} catch (error) {
+			textMeasureContext = null
 		}
-		return offset
-	})
+		return textMeasureContext
+	}
+
+	// 用 canvas 量出正文字体下每个字符的真实宽度（单位 em）；不支持时交给分页工具按字符类型估算。
+	function createCharWidthMeasurer(fontSize) {
+		const context = getTextMeasureContext()
+		if (!context?.measureText) return null
+		context.font = `${fontSize}px ${READER_FONT_FAMILY}`
+		return (char) => context.measureText(char).width / fontSize
+	}
 
 	function getPageLimits() {
 		const systemInfo = uni.getSystemInfoSync()
 		const viewportWidth = systemInfo.windowWidth
 		const viewportHeight = systemInfo.windowHeight
-		const rpx = viewportWidth / 750
+		const rpx = (value) => uni.upx2px(value)
 		const safeTop = systemInfo.safeAreaInsets?.top || systemInfo.statusBarHeight || 0
 		const safeBottom = systemInfo.safeAreaInsets?.bottom || 0
-		const contentWidth = viewportWidth - 80 * rpx
+		// 与 .reading-area 一致：width 100%、max-width 760rpx、左右 padding 各 40rpx（border-box）。
+		const contentWidth = Math.min(viewportWidth, rpx(760)) - rpx(80)
 		const contentHeight =
-			viewportHeight - (76 + 112) * rpx - safeTop - safeBottom
-		const fontSize = readerFontSize.value * rpx
-		const lineHeight = readerFontSize.value * 1.75 * rpx
-		const charactersPerLine = Math.max(10, Math.floor(contentWidth / fontSize))
+			viewportHeight - rpx(76 + 112) - safeTop - safeBottom
+		const fontSize = rpx(readerFontSize.value)
+		const lineHeight = fontSize * 1.75
 		// App WebView 的实际行盒高度可能比 CSS 理论值略大，预留一行避免底部越界。
 		const normalLines = Math.max(6, Math.floor(contentHeight / lineHeight) - 1)
 		const firstPageLines = Math.max(
 			4,
-			Math.floor((contentHeight - 190 * rpx) / lineHeight) - 1
+			Math.floor((contentHeight - rpx(190)) / lineHeight) - 1
 		)
-		let widthSafetyFactor = 0.9
-		// App 使用设备 WebView 实际渲染正文，按 App 的字体宽度校准分页。
-		// #ifdef APP-PLUS
-		widthSafetyFactor = 1
-		// #endif
 
 		return {
-			// App 中保留少量余量，避免正文贴边或被设备安全区域截断。
-			charactersPerLine: Math.max(10, Math.floor(charactersPerLine * widthSafetyFactor)),
+			// 以 em 计的可用行宽。
+			lineWidth: Math.max(10, contentWidth / fontSize),
+			measureCharWidth: createCharWidthMeasurer(fontSize),
 			pageLineLimit: Math.max(6, normalLines),
 			firstPageLineLimit: Math.max(4, firstPageLines)
 		}
@@ -407,7 +416,8 @@
 		return indexes
 	}
 
-	function splitHighlightedText(text, keyword, annotations) {
+	// annotationRanges 是页内区间 [{ start, end, annotation }]，由全文偏移换算而来。
+	function splitHighlightedText(text, keyword, annotationRanges) {
 		if (!text) return [{ text: '', searchHighlighted: false, annotationHighlighted: false }]
 		const searchMarks = new Uint8Array(text.length)
 		const annotationMarks = Array.from({ length: text.length }, () => [])
@@ -417,12 +427,10 @@
 				searchMarks[cursor] = 1
 			}
 		})
-		annotations.forEach((annotation) => {
-			matchIndexes(text, annotation.quote).forEach((index) => {
-				for (let cursor = index; cursor < index + annotation.quote.length; cursor += 1) {
-					annotationMarks[cursor].push(annotation)
-				}
-			})
+		annotationRanges.forEach(({ start, end, annotation }) => {
+			for (let cursor = start; cursor < end; cursor += 1) {
+				annotationMarks[cursor].push(annotation)
+			}
 		})
 
 		const segments = []
@@ -442,15 +450,27 @@
 		return segments
 	}
 
+	// 评论在规范化全文中的区间，只在评论列表或正文变化时计算一次。
+	const resolvedAnnotations = computed(() =>
+		sharedAnnotations.value
+			.map((annotation) => ({ annotation, range: resolveSourceRange(annotation) }))
+			.filter((item) => item.range && item.range.end > item.range.start)
+	)
+
 	const highlightedSegments = computed(() => {
 		const keyword = searchMatches.value.length ? searchKeyword.value.trim() : ''
-		const pageAnnotations = sharedAnnotations.value.filter(
-			(annotation) => findEntryPageIndex(annotation) === currentPageIndex.value
-		)
+		const page = currentPage.value
+		const annotationRanges = []
+		resolvedAnnotations.value.forEach(({ annotation, range }) => {
+			if (range.end <= page.sourceStart || range.start >= page.sourceEnd) return
+			pageRangesForSource(page, range.start, range.end).forEach((pageRange) => {
+				annotationRanges.push({ ...pageRange, annotation })
+			})
+		})
 		return splitHighlightedText(
 			formattedPageContent.value,
 			keyword,
-			pageAnnotations
+			annotationRanges
 		)
 	})
 
@@ -475,9 +495,22 @@
 		return `${activeSearchIndex.value + 1} / ${searchMatches.value.length} 页`
 	})
 
+	// 阅读位置锚点：只在用户翻页时更新。调整字号后显示的是"包含锚点的那一页"，
+	// 新页的开头可能比锚点靠前；若把它存成新位置，来回调字号时位置会逐渐往前漂。
+	let readingAnchor = null
+
 	function saveProgress() {
 		if (!activeBookId.value) return
-		updateBookProgress(activeBookId.value, readingProgress.value)
+		updateBookProgress(activeBookId.value, readingProgress.value, readingAnchor ?? currentOffset.value)
+	}
+
+	// 优先按全文位置找回阅读页；没有记录位置的旧数据按百分比估算。
+	function restorePageIndex(readingOffset, progress) {
+		if (Number.isInteger(readingOffset) && readingOffset >= 0) {
+			const pageIndex = findPageIndexBySourceOffset(pages.value, readingOffset)
+			if (pageIndex >= 0) return pageIndex
+		}
+		return Math.round(((progress || 0) / 100) * Math.max(0, pages.value.length - 1))
 	}
 
 	function changePage(nextIndex) {
@@ -486,6 +519,7 @@
 		closeCommentPeek()
 		clearSelectedRange()
 		currentPageIndex.value = nextIndex
+		readingAnchor = currentOffset.value
 		saveProgress()
 	}
 
@@ -569,6 +603,7 @@
 	function handleFontChange(event) {
 		const nextFontSize = Math.round(event.detail.value)
 		const progress = readingProgress.value
+		const readingOffset = readingAnchor ?? currentOffset.value
 		draggingFontSize.value = null
 		if (nextFontSize === readerFontSize.value) return
 
@@ -579,9 +614,7 @@
 			...getPageLimits(),
 			chapters: activeBook.value?.chapters || []
 		})
-		currentPageIndex.value = Math.round(
-			(progress / 100) * Math.max(0, pages.value.length - 1)
-		)
+		currentPageIndex.value = restorePageIndex(readingOffset, progress)
 		saveProgress()
 	}
 
@@ -689,8 +722,14 @@
 		}
 		commentOnSelection()
 	}
+	function handleRenderedCopy(payload) {
+		const text = cleanSelectedText(payload?.text)
+		if (!text) return
+		uni.setClipboardData({ data: text })
+	}
 	if (readerComponentInstance) {
 		readerComponentInstance.ctx.receiveRenderedSelection = handleRenderedSelectionAction
+		readerComponentInstance.ctx.receiveRenderedCopy = handleRenderedCopy
 	}
 
 	defineExpose({ handleRenderedSelection, handleRenderedSelectionAction })
@@ -755,29 +794,42 @@
 		return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${hours}:${minutes}`
 	}
 
+	// 评论 / 笔记在规范化全文中的区间。优先使用保存的偏移；若偏移处的文字与原文不符
+	// （例如旧数据或正文规范化规则变过），再按原文找离保存位置最近的一处。
+	function resolveSourceRange(item) {
+		const source = normalizedContent.value
+		const quote = item.quote || ''
+		const savedStart = item.start_offset ?? item.anchor_offset
+		const hasSavedStart = Number.isInteger(savedStart) && savedStart >= 0 && savedStart <= source.length
+
+		if (hasSavedStart) {
+			const savedEnd = item.end_offset ?? savedStart + quote.length
+			if (!quote || source.slice(savedStart, savedEnd) === quote) {
+				return { start: savedStart, end: savedEnd }
+			}
+		}
+		if (!quote) return null
+
+		let bestIndex = -1
+		let index = source.indexOf(quote)
+		while (index !== -1) {
+			if (bestIndex < 0 || Math.abs(index - (savedStart || 0)) < Math.abs(bestIndex - (savedStart || 0))) {
+				bestIndex = index
+			}
+			index = source.indexOf(quote, index + 1)
+		}
+		return bestIndex < 0 ? null : { start: bestIndex, end: bestIndex + quote.length }
+	}
+
 	function findEntryPageIndex(item) {
-		if (!item.quote || !pages.value.length) return -1
-		const expectedPage = Math.floor(
-			((item.start_offset ?? item.anchor_offset ?? 0) /
-				Math.max(1, normalizedContent.value.length)) * pages.value.length
-		)
-		const matchingPages = pages.value
-			.map((page, index) => page.content.includes(item.quote) ? index : -1)
-			.filter((index) => index >= 0)
-		return matchingPages.sort(
-			(left, right) => Math.abs(left - expectedPage) - Math.abs(right - expectedPage)
-		)[0] ?? -1
+		const range = resolveSourceRange(item)
+		return range ? findPageIndexBySourceOffset(pages.value, range.start) : -1
 	}
 
 	function locateCommunityEntry(item) {
 		isCommunityVisible.value = false
-		let targetPage = findEntryPageIndex(item)
-		if (targetPage < 0 && item.anchor_offset !== null && item.anchor_offset !== undefined) {
-			targetPage = Math.floor(
-				(item.anchor_offset / Math.max(1, normalizedContent.value.length)) * pages.value.length
-			)
-		}
-		if (targetPage >= 0) changePage(Math.min(pages.value.length - 1, targetPage))
+		const targetPage = findEntryPageIndex(item)
+		if (targetPage >= 0) changePage(targetPage)
 	}
 
 	async function refreshCommunity() {
@@ -865,9 +917,8 @@
 					...getPageLimits(),
 					chapters: book.chapters || []
 				})
-			currentPageIndex.value = Math.round(
-				((book.progress || 0) / 100) * Math.max(0, pages.value.length - 1)
-			)
+			currentPageIndex.value = restorePageIndex(book.readingOffset, book.progress)
+			readingAnchor = Number.isInteger(book.readingOffset) ? book.readingOffset : null
 			if (book.sharing) {
 				refreshCommunity()
 			} else {
@@ -899,6 +950,21 @@
 	</script>
 
 	<script module="selectionBridge" lang="renderjs">
+		const LONG_PRESS_DELAY = 450
+		const TOUCH_MOVE_TOLERANCE = 10
+		const CLICK_SUPPRESS_DURATION = 450
+		const SELECTION_COLOR = 'rgba(86, 134, 106, 0.28)'
+		const HANDLE_COLOR = '#3f7959'
+		// App 的 WebView 选中文字时一定会弹出系统的"复制 / 粘贴 / 搜索"菜单，
+		// 所以 App 端关闭原生选区，由这里自己实现长按选词、拖动手柄和菜单。
+		const useCustomSelection = typeof navigator !== 'undefined' && /Html5Plus/i.test(navigator.userAgent)
+
+		function createFixedElement(styles) {
+			const element = document.createElement('div')
+			element.style.cssText = ['position:fixed', 'user-select:none', '-webkit-user-select:none', ...styles].join(';')
+			return element
+		}
+
 		export default {
 			data() {
 				return {
@@ -912,12 +978,20 @@
 				}
 			},
 			mounted() {
+				if (useCustomSelection) {
+					this.setupCustomSelection()
+					return
+				}
 				document.addEventListener('selectionchange', this.scheduleCapture)
 				document.addEventListener('touchend', this.scheduleCapture)
 				document.addEventListener('mouseup', this.scheduleCapture)
 				this.selectionPoller = setInterval(() => this.captureSelection(), 300)
 			},
 			beforeDestroy() {
+				if (useCustomSelection) {
+					this.teardownCustomSelection()
+					return
+				}
 				document.removeEventListener('selectionchange', this.scheduleCapture)
 				document.removeEventListener('touchend', this.scheduleCapture)
 				document.removeEventListener('mouseup', this.scheduleCapture)
@@ -928,13 +1002,450 @@
 			methods: {
 				onActiveChange(value) {
 					this.enabled = Boolean(value)
-					if (!this.enabled) this.removeCommentButton()
+					if (!this.enabled) {
+						this.removeCommentButton()
+						this.clearCustomSelection()
+					}
 				},
 				onClearRequest() {
 					this.removeCommentButton()
+					this.clearCustomSelection()
 					const selection = window.getSelection && window.getSelection()
 					if (selection) selection.removeAllRanges()
 				},
+
+				// ---------- App：自定义选区 ----------
+
+				setupCustomSelection() {
+					// 选区状态不放进 data，避免 DOM 节点和坐标数据被做成响应式。
+					this.custom = {
+						pressTimer: null,
+						pressPoint: null,
+						// 'press'：等待长按；'extend'：长按后手指未离开，继续拖动扩展选区；
+						// 'handle'：拖动手柄；'dismiss'：点击空白处取消选区。
+						gesture: null,
+						model: null,
+						start: 0,
+						end: 0,
+						anchor: null,
+						overlays: [],
+						startHandle: null,
+						endHandle: null,
+						menu: null,
+						suppressClickUntil: 0
+					}
+					const options = { capture: true, passive: false }
+					document.addEventListener('touchstart', this.onCustomTouchStart, options)
+					document.addEventListener('touchmove', this.onCustomTouchMove, options)
+					document.addEventListener('touchend', this.onCustomTouchEnd, options)
+					document.addEventListener('touchcancel', this.onCustomTouchEnd, options)
+					document.addEventListener('click', this.onCustomClick, true)
+					document.addEventListener('contextmenu', this.onCustomContextMenu, true)
+					window.addEventListener('resize', this.clearCustomSelection)
+				},
+				teardownCustomSelection() {
+					const options = { capture: true, passive: false }
+					document.removeEventListener('touchstart', this.onCustomTouchStart, options)
+					document.removeEventListener('touchmove', this.onCustomTouchMove, options)
+					document.removeEventListener('touchend', this.onCustomTouchEnd, options)
+					document.removeEventListener('touchcancel', this.onCustomTouchEnd, options)
+					document.removeEventListener('click', this.onCustomClick, true)
+					document.removeEventListener('contextmenu', this.onCustomContextMenu, true)
+					window.removeEventListener('resize', this.clearCustomSelection)
+					this.clearCustomSelection()
+					const custom = this.custom
+					;[custom.startHandle, custom.endHandle, custom.menu, ...custom.overlays].forEach((element) => {
+						if (element?.parentNode) element.parentNode.removeChild(element)
+					})
+				},
+				getContentElement() {
+					return document.querySelector('.book-content') ||
+						(this.$el && this.$el.querySelector('.book-content'))
+				},
+				hasCustomSelection() {
+					return Boolean(this.custom && this.custom.end > this.custom.start)
+				},
+				isInside(element, target) {
+					return Boolean(element && target && element.contains(target))
+				},
+
+				// 把正文 DOM 展开成一段线性文本，并记录每个字在屏幕上的位置。
+				// uni-app 的 <text> 会把 "\n" 渲染成 <br>，这里把 <br> 还原成换行符，
+				// 保证偏移和页面文本一一对应。
+				buildTextModel() {
+					const contentElement = this.getContentElement()
+					if (!contentElement) return null
+					const chars = []
+					let text = ''
+					const walker = document.createTreeWalker(
+						contentElement,
+						NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT
+					)
+					const range = document.createRange()
+					let node = walker.nextNode()
+					while (node) {
+						if (node.nodeType === Node.ELEMENT_NODE) {
+							if (node.tagName === 'BR') text += '\n'
+						} else {
+							const value = node.nodeValue || ''
+							for (let index = 0; index < value.length;) {
+								const size = value.codePointAt(index) > 0xffff ? 2 : 1
+								range.setStart(node, index)
+								range.setEnd(node, index + size)
+								const rect = Array.from(range.getClientRects()).find(
+									(item) => item.width > 0 && item.height > 0
+								)
+								if (rect) {
+									chars.push({
+										start: text.length + index,
+										end: text.length + index + size,
+										left: rect.left,
+										right: rect.right,
+										top: rect.top,
+										bottom: rect.bottom
+									})
+								}
+								index += size
+							}
+							text += value
+						}
+						node = walker.nextNode()
+					}
+					return chars.length ? { text, chars } : null
+				},
+				// 找到离触点最近的字：先找垂直方向最近的一行，再在行内找水平方向最近的字。
+				hitTestChar(x, y) {
+					const chars = this.custom.model?.chars
+					if (!chars?.length) return null
+					let lineTop = null
+					let bestDistance = Number.POSITIVE_INFINITY
+					chars.forEach((char) => {
+						const distance = y < char.top ? char.top - y : y > char.bottom ? y - char.bottom : 0
+						if (distance < bestDistance - 0.5) {
+							bestDistance = distance
+							lineTop = char.top
+						}
+					})
+					let best = null
+					bestDistance = Number.POSITIVE_INFINITY
+					chars.forEach((char) => {
+						if (Math.abs(char.top - lineTop) > 2) return
+						const distance = x < char.left ? char.left - x : x > char.right ? x - char.right : 0
+						if (distance < bestDistance) {
+							bestDistance = distance
+							best = char
+						}
+					})
+					return best
+				},
+				// 长按时选中触点所在的词；不支持分词时只选中一个字。
+				wordRangeAt(char) {
+					const { text } = this.custom.model
+					if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+						const segments = new Intl.Segmenter('zh', { granularity: 'word' }).segment(text)
+						const segment = segments.containing(char.start)
+						if (segment?.isWordLike && segment.segment.trim()) {
+							return { start: segment.index, end: segment.index + segment.segment.length }
+						}
+					}
+					return { start: char.start, end: char.end }
+				},
+				// anchor 是拖动过程中必须保持选中的部分，选区在它和手指所在的字之间伸缩。
+				extendSelectionTo(x, y) {
+					const custom = this.custom
+					const char = this.hitTestChar(x, y)
+					if (!char || !custom.anchor) return
+					if (char.start >= custom.anchor.start) {
+						custom.start = custom.anchor.start
+						custom.end = Math.max(custom.anchor.end, char.end)
+					} else {
+						custom.start = char.start
+						custom.end = custom.anchor.end
+					}
+					this.renderCustomSelection()
+				},
+				selectionLineRects() {
+					const { chars } = this.custom.model
+					const lines = []
+					chars.forEach((char) => {
+						if (char.start < this.custom.start || char.end > this.custom.end) return
+						const line = lines[lines.length - 1]
+						if (line && Math.abs(line.top - char.top) <= 2) {
+							line.left = Math.min(line.left, char.left)
+							line.right = Math.max(line.right, char.right)
+							line.bottom = Math.max(line.bottom, char.bottom)
+						} else {
+							lines.push({ left: char.left, right: char.right, top: char.top, bottom: char.bottom })
+						}
+					})
+					return lines
+				},
+				renderCustomSelection(showMenu = false) {
+					const custom = this.custom
+					const lines = this.selectionLineRects()
+					if (!lines.length) {
+						this.clearCustomSelection()
+						return
+					}
+					while (custom.overlays.length < lines.length) {
+						const overlay = createFixedElement([
+							'z-index:2147483640',
+							'pointer-events:none',
+							`background:${SELECTION_COLOR}`
+						])
+						document.body.appendChild(overlay)
+						custom.overlays.push(overlay)
+					}
+					custom.overlays.forEach((overlay, index) => {
+						const line = lines[index]
+						overlay.style.display = line ? 'block' : 'none'
+						if (!line) return
+						overlay.style.left = `${line.left}px`
+						overlay.style.top = `${line.top}px`
+						overlay.style.width = `${line.right - line.left}px`
+						overlay.style.height = `${line.bottom - line.top}px`
+					})
+					this.placeHandles(lines[0], lines[lines.length - 1])
+					if (showMenu) {
+						this.showSelectionMenu(lines)
+					} else if (custom.menu) {
+						custom.menu.style.display = 'none'
+					}
+				},
+				createHandle(side) {
+					// 手柄由一条竖线和一个圆点组成，外层留出透明区域方便手指按住。
+					const handle = createFixedElement([
+						'z-index:2147483642',
+						'width:36px',
+						'touch-action:none',
+						'-webkit-tap-highlight-color:transparent'
+					])
+					handle.dataset.side = side
+					const bar = document.createElement('div')
+					bar.style.cssText = `position:absolute;left:17px;width:2px;background:${HANDLE_COLOR};` +
+						(side === 'start' ? 'top:10px;bottom:0' : 'top:0;bottom:10px')
+					const knob = document.createElement('div')
+					knob.style.cssText = `position:absolute;left:12px;width:12px;height:12px;border-radius:50%;background:${HANDLE_COLOR};` +
+						(side === 'start' ? 'top:0' : 'bottom:0')
+					handle.appendChild(bar)
+					handle.appendChild(knob)
+					document.body.appendChild(handle)
+					return handle
+				},
+				placeHandles(firstLine, lastLine) {
+					const custom = this.custom
+					if (!custom.startHandle) custom.startHandle = this.createHandle('start')
+					if (!custom.endHandle) custom.endHandle = this.createHandle('end')
+					custom.startHandle.style.display = 'block'
+					custom.startHandle.style.left = `${firstLine.left - 18}px`
+					custom.startHandle.style.top = `${firstLine.top - 12}px`
+					custom.startHandle.style.height = `${firstLine.bottom - firstLine.top + 12}px`
+					custom.endHandle.style.display = 'block'
+					custom.endHandle.style.left = `${lastLine.right - 18}px`
+					custom.endHandle.style.top = `${lastLine.top}px`
+					custom.endHandle.style.height = `${lastLine.bottom - lastLine.top + 12}px`
+				},
+				createMenu() {
+					const menu = createFixedElement([
+						'z-index:2147483647',
+						'display:flex',
+						'height:40px',
+						'padding:0 4px',
+						'background:#2f3b34',
+						'border-radius:8px',
+						'box-shadow:0 6px 18px rgba(31,48,39,.24)'
+					])
+					;[['copy', '复制'], ['comment', '评论']].forEach(([action, label], index) => {
+						const button = document.createElement('div')
+						button.textContent = label
+						button.setAttribute('role', 'button')
+						button.style.cssText = [
+							'padding:0 14px',
+							'color:#fff',
+							'font-size:14px',
+							'line-height:40px',
+							'user-select:none',
+							'-webkit-user-select:none',
+							'-webkit-tap-highlight-color:transparent',
+							index ? 'border-left:1px solid rgba(255,255,255,.18)' : ''
+						].join(';')
+						button.addEventListener('touchstart', (event) => {
+							event.preventDefault()
+							event.stopPropagation()
+							this.runMenuAction(action)
+						}, { passive: false })
+						menu.appendChild(button)
+					})
+					document.body.appendChild(menu)
+					return menu
+				},
+				showSelectionMenu(lines) {
+					const custom = this.custom
+					if (!custom.menu) custom.menu = this.createMenu()
+					const menu = custom.menu
+					menu.style.display = 'flex'
+					const width = menu.offsetWidth
+					const height = menu.offsetHeight
+					const edge = 10
+					const gap = 18
+					const firstLine = lines[0]
+					const lastLine = lines[lines.length - 1]
+					const left = Math.min(...lines.map((line) => line.left))
+					const right = Math.max(...lines.map((line) => line.right))
+					// 默认放在选区上方（避开起始手柄的圆点），上方放不下时放到下方。
+					let top = firstLine.top - height - gap
+					if (top < edge) top = lastLine.bottom + gap
+					top = Math.min(top, window.innerHeight - height - edge)
+					const centeredLeft = (left + right - width) / 2
+					menu.style.left = `${Math.max(edge, Math.min(centeredLeft, window.innerWidth - width - edge))}px`
+					menu.style.top = `${Math.max(edge, top)}px`
+				},
+				clearCustomSelection() {
+					const custom = this.custom
+					if (!custom) return
+					if (custom.pressTimer) clearTimeout(custom.pressTimer)
+					custom.pressTimer = null
+					custom.gesture = null
+					custom.model = null
+					custom.start = 0
+					custom.end = 0
+					custom.anchor = null
+					;[custom.startHandle, custom.endHandle, custom.menu, ...custom.overlays].forEach((element) => {
+						if (element) element.style.display = 'none'
+					})
+				},
+				selectedPayload() {
+					const custom = this.custom
+					const lines = this.selectionLineRects()
+					const lastLine = lines[lines.length - 1]
+					return {
+						text: custom.model.text.slice(custom.start, custom.end),
+						rect: {
+							left: lastLine.left,
+							right: lastLine.right,
+							top: lastLine.top,
+							width: lastLine.right - lastLine.left,
+							height: lastLine.bottom - lastLine.top
+						},
+						viewportWidth: window.innerWidth,
+						viewportHeight: window.innerHeight
+					}
+				},
+				runMenuAction(action) {
+					const now = Date.now()
+					if (now - this.lastCommentAt < 400 || !this.hasCustomSelection()) return
+					this.lastCommentAt = now
+					const payload = this.selectedPayload()
+					this.clearCustomSelection()
+					const method = action === 'copy' ? 'receiveRenderedCopy' : 'receiveRenderedSelection'
+					setTimeout(() => this.$ownerInstance.callMethod(method, payload), 50)
+				},
+				onCustomTouchStart(event) {
+					const custom = this.custom
+					if (!this.enabled || event.touches.length !== 1) {
+						if (custom.pressTimer) clearTimeout(custom.pressTimer)
+						custom.pressTimer = null
+						return
+					}
+					const target = event.target
+					const touch = event.touches[0]
+					// 菜单按钮由它们自己的监听处理。
+					if (this.isInside(custom.menu, target)) return
+
+					if (this.hasCustomSelection()) {
+						event.preventDefault()
+						event.stopPropagation()
+						const side = this.isInside(custom.startHandle, target) ? 'start' :
+							this.isInside(custom.endHandle, target) ? 'end' : ''
+						if (side) {
+							// 拖动一端时，另一端的那个字保持不动。
+							const fixed = custom.model.chars.find((char) =>
+								side === 'start' ? char.end === custom.end : char.start === custom.start
+							)
+							custom.anchor = fixed ? { start: fixed.start, end: fixed.end } : { start: custom.start, end: custom.end }
+							custom.gesture = 'handle'
+							if (custom.menu) custom.menu.style.display = 'none'
+						} else {
+							// 选区存在时点击其他位置只取消选区，不翻页、不唤出工具栏。
+							this.clearCustomSelection()
+							custom.gesture = 'dismiss'
+						}
+						return
+					}
+
+					if (!this.isInside(this.getContentElement(), target)) return
+					custom.gesture = 'press'
+					custom.pressPoint = { x: touch.clientX, y: touch.clientY }
+					if (custom.pressTimer) clearTimeout(custom.pressTimer)
+					custom.pressTimer = setTimeout(() => this.onLongPress(), LONG_PRESS_DELAY)
+				},
+				onLongPress() {
+					const custom = this.custom
+					custom.pressTimer = null
+					if (custom.gesture !== 'press') return
+					custom.model = this.buildTextModel()
+					const char = custom.model && this.hitTestChar(custom.pressPoint.x, custom.pressPoint.y)
+					if (!char) {
+						custom.gesture = null
+						return
+					}
+					const word = this.wordRangeAt(char)
+					custom.start = word.start
+					custom.end = word.end
+					custom.anchor = word
+					custom.gesture = 'extend'
+					if (navigator.vibrate) navigator.vibrate(12)
+					this.renderCustomSelection()
+				},
+				onCustomTouchMove(event) {
+					const custom = this.custom
+					const touch = event.touches[0]
+					if (!touch || !custom.gesture) return
+					if (custom.gesture === 'press') {
+						const moved = Math.hypot(
+							touch.clientX - custom.pressPoint.x,
+							touch.clientY - custom.pressPoint.y
+						)
+						if (moved > TOUCH_MOVE_TOLERANCE) {
+							clearTimeout(custom.pressTimer)
+							custom.pressTimer = null
+							custom.gesture = null
+						}
+						return
+					}
+					event.preventDefault()
+					event.stopPropagation()
+					if (custom.gesture === 'extend' || custom.gesture === 'handle') {
+						this.extendSelectionTo(touch.clientX, touch.clientY)
+					}
+				},
+				onCustomTouchEnd(event) {
+					const custom = this.custom
+					if (custom.pressTimer) clearTimeout(custom.pressTimer)
+					custom.pressTimer = null
+					const gesture = custom.gesture
+					custom.gesture = null
+					if (!gesture || gesture === 'press') return
+					// 长按、拖动、取消选区这几种手势结束后都会再派发一次 click（即 @tap），
+					// 必须拦下来，否则松手时会触发翻页或显示工具栏。
+					event.preventDefault()
+					event.stopPropagation()
+					// 只拦截这次触摸随后的那一个 click；设上限时间，防止 click 没有派发时误拦下一次点击。
+					custom.suppressClickUntil = Date.now() + CLICK_SUPPRESS_DURATION
+					if (this.hasCustomSelection()) this.renderCustomSelection(true)
+				},
+				onCustomClick(event) {
+					if (Date.now() > this.custom.suppressClickUntil) return
+					this.custom.suppressClickUntil = 0
+					event.preventDefault()
+					event.stopPropagation()
+				},
+				onCustomContextMenu(event) {
+					if (this.isInside(this.getContentElement(), event.target)) event.preventDefault()
+				},
+
+				// ---------- 其他端：沿用原生选区 ----------
+
 				scheduleCapture() {
 					if (!this.enabled) return
 					if (this.captureTimer) clearTimeout(this.captureTimer)
@@ -1213,6 +1724,12 @@
 		white-space: pre-wrap;
 		word-break: break-all;
 		user-select: text;
+	}
+
+	.book-content.custom-selection {
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
 	}
 
 	.search-highlight {
