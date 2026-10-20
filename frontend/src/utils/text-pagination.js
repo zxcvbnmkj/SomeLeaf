@@ -333,22 +333,16 @@ function paginateSection(
     let lineIndex = 0
     let textOffset = 0
 
-    // 整段按视觉行分配到各页，页面边界总是落在某一视觉行的末尾，
-    // 因此每页最后一行都是排满的，不会出现"行内还有空位却被截到下一页"。
+    // 每个视觉行单独成为页面里的一行（以 "\n" 分隔），渲染时不再交给浏览器重新折行，
+    // 页面上的行数和折行位置都与这里的模拟完全一致，页尾不会多出或少掉一行。
     while (lineIndex < wrappedLines.length) {
-      const availableLines = currentLineLimit() - usedLines
+      if (usedLines >= currentLineLimit()) pushPage()
 
-      if (availableLines <= 0) {
-        pushPage()
-        continue
-      }
-
-      const pageChunk = wrappedLines.slice(lineIndex, lineIndex + availableLines)
-      const chunkLength = pageChunk.reduce((total, line) => total + line.length, 0)
-      appendToPage(sourceLine, textOffset, textOffset + chunkLength)
-      textOffset += chunkLength
-      usedLines += pageChunk.length
-      lineIndex += pageChunk.length
+      const lineLength = wrappedLines[lineIndex].length
+      appendToPage(sourceLine, textOffset, textOffset + lineLength)
+      textOffset += lineLength
+      usedLines += 1
+      lineIndex += 1
     }
   })
 

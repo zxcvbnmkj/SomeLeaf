@@ -29,6 +29,8 @@
 			:change:selection-bridge-active="selectionBridge.onActiveChange"
 			:selection-clear-request="selectionClearRequest"
 			:change:selection-clear-request="selectionBridge.onClearRequest"
+			:layout-request="layoutRequest"
+			:change:layout-request="selectionBridge.onLayoutRequest"
 			@tap="handleReadingTap"
 		>
 			<view v-if="currentPageIndex === 0" class="chapter-heading">
@@ -346,33 +348,120 @@
 		return (char) => context.measureText(char).width / fontSize
 	}
 
-	function getPageLimits() {
+	// 按样式表和系统信息推算排版参数；App 端实测失败时也用它兜底。
+	function estimatePageLimits() {
 		const systemInfo = uni.getSystemInfoSync()
 		const viewportWidth = systemInfo.windowWidth
 		const viewportHeight = systemInfo.windowHeight
-		const rpx = (value) => uni.upx2px(value)
-		const safeTop = systemInfo.safeAreaInsets?.top || systemInfo.statusBarHeight || 0
+		// 不能用 uni.upx2px：它会向下取整成整数像素，而 CSS 里的 rpx 是带小数的。
+		// 例如 393px 宽的屏幕上 32rpx 实际约 16.77px，取整成 16px 后每行字数、每页行数都会算多。
+		const rpx = (value) => (value * Math.min(viewportWidth, 960)) / 750
 		const safeBottom = systemInfo.safeAreaInsets?.bottom || 0
 		// 与 .reading-area 一致：width 100%、max-width 760rpx、左右 padding 各 40rpx（border-box）。
 		const contentWidth = Math.min(viewportWidth, rpx(760)) - rpx(80)
+		// 与 .reading-area 一致：高度 100vh - 76rpx - 安全区顶部，上下 padding 36rpx + 72rpx + 安全区底部。
 		const contentHeight =
-			viewportHeight - rpx(76 + 112) - safeTop - safeBottom
+			viewportHeight - rpx(76 + 36 + 72) - readerSafeTop - safeBottom
 		const fontSize = rpx(readerFontSize.value)
 		const lineHeight = fontSize * 1.75
-		// App WebView 的实际行盒高度可能比 CSS 理论值略大，预留一行避免底部越界。
-		const normalLines = Math.max(6, Math.floor(contentHeight / lineHeight) - 1)
+		// 每一行都由分页结果显式换行，行数是确定的，只留 2px 吸收小数误差。
+		const normalLines = Math.max(6, Math.floor((contentHeight - 2) / lineHeight))
+		// 首页上方的书名区高度受系统字体影响，仍预留一行。
 		const firstPageLines = Math.max(
 			4,
 			Math.floor((contentHeight - rpx(190)) / lineHeight) - 1
 		)
 
 		return {
-			// 以 em 计的可用行宽。
-			lineWidth: Math.max(10, contentWidth / fontSize),
+			// 以 em 计的可用行宽；减去一点余量，避免浮点误差让行尾最后一个字被裁掉。
+			lineWidth: Math.max(10, contentWidth / fontSize - 0.02),
 			measureCharWidth: createCharWidthMeasurer(fontSize),
 			pageLineLimit: Math.max(6, normalLines),
 			firstPageLineLimit: Math.max(4, firstPageLines)
 		}
+	}
+
+	// App 端逻辑层没有 canvas，推算的字宽、正文区域也受系统字体缩放等影响，和 WebView 实际排版对不上。
+	// 所以 App 端把书中出现的所有字符交给 renderjs（见 layoutProbe），在 WebView 里用 DOM 实测后再分页。
+	const layoutRequest = ref(null)
+	const LAYOUT_MEASURE_TIMEOUT = 3000
+	let pendingLayout = null
+	let measuredHeadingHeight = 0
+
+	function collectLayoutChars() {
+		const seen = new Uint8Array(0x10000)
+		const astral = new Set()
+		const chars = []
+		const add = (text) => {
+			const value = String(text || '')
+			for (let index = 0; index < value.length; index += 1) {
+				const code = value.codePointAt(index)
+				if (code > 0xffff) {
+					index += 1
+					if (!astral.has(code)) {
+						astral.add(code)
+						chars.push(String.fromCodePoint(code))
+					}
+				} else if (!seen[code] && code !== 0x0a) {
+					seen[code] = 1
+					chars.push(String.fromCharCode(code))
+				}
+			}
+		}
+		add('　')
+		add(bookTitle.value)
+		;(activeBook.value?.chapters || []).forEach((chapter) => add(chapter.title))
+		add(normalizedContent.value)
+		return chars
+	}
+
+	function receiveRenderedLayout(layout) {
+		if (!pendingLayout || layout?.id !== pendingLayout.id) return
+		pendingLayout.resolve(layout)
+	}
+
+	function measureRenderedLayout() {
+		if (pendingLayout) pendingLayout.resolve(null)
+		const chars = collectLayoutChars()
+		const id = Date.now()
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => finish(null), LAYOUT_MEASURE_TIMEOUT)
+			function finish(layout) {
+				clearTimeout(timer)
+				if (pendingLayout?.id === id) pendingLayout = null
+				resolve(layout ? { ...layout, chars } : null)
+			}
+			pendingLayout = { id, resolve: finish }
+			layoutRequest.value = { id, chars: chars.join('') }
+		})
+	}
+
+	// 实测结果都以像素为单位；分页工具里的宽度统一换算成 em。
+	function layoutToPageLimits(layout) {
+		const widths = new Map()
+		layout.chars.forEach((char, index) => widths.set(char, layout.widths[index] / layout.fontSize))
+		if (layout.headingHeight > 0) measuredHeadingHeight = layout.headingHeight
+		// 只留 1px 吸收小数误差。
+		const linesIn = (height) => Math.floor((height - 1) / layout.lineHeight)
+		const firstPageLines = measuredHeadingHeight
+			? linesIn(layout.pageHeight - measuredHeadingHeight)
+			: estimatePageLimits().firstPageLineLimit
+
+		return {
+			// 减去一点余量，避免浮点误差让行尾最后一个字被裁掉。
+			lineWidth: Math.max(10, (layout.lineWidth - 0.5) / layout.fontSize),
+			measureCharWidth: (char) => widths.get(char),
+			pageLineLimit: Math.max(6, linesIn(layout.pageHeight)),
+			firstPageLineLimit: Math.max(4, firstPageLines)
+		}
+	}
+
+	async function getPageLimits() {
+		// #ifdef APP-PLUS
+		const layout = await measureRenderedLayout()
+		if (layout) return layoutToPageLimits(layout)
+		// #endif
+		return estimatePageLimits()
 	}
 
 	const currentPage = computed(() =>
@@ -402,18 +491,27 @@
 
 	const formattedPageContent = computed(() => currentPage.value.content)
 
+	// 页面文字在每个视觉行末尾都有换行符，关键词可能被行尾拆开，
+	// 所以去掉换行后再查找，返回 [{ start, end }]（原文本中的区间，跨行时包含中间的换行符）。
 	function matchIndexes(text, needle, caseInsensitive = false) {
 		if (!needle) return []
-		const source = caseInsensitive ? text.toLocaleLowerCase() : text
+		const positions = []
+		let joined = ''
+		for (let index = 0; index < text.length; index += 1) {
+			if (text[index] === '\n') continue
+			positions.push(index)
+			joined += text[index]
+		}
+		const source = caseInsensitive ? joined.toLocaleLowerCase() : joined
 		const target = caseInsensitive ? needle.toLocaleLowerCase() : needle
-		const indexes = []
+		const ranges = []
 		let index = source.indexOf(target)
 
 		while (index !== -1) {
-			indexes.push(index)
+			ranges.push({ start: positions[index], end: positions[index + target.length - 1] + 1 })
 			index = source.indexOf(target, index + Math.max(1, target.length))
 		}
-		return indexes
+		return ranges
 	}
 
 	// annotationRanges 是页内区间 [{ start, end, annotation }]，由全文偏移换算而来。
@@ -422,8 +520,8 @@
 		const searchMarks = new Uint8Array(text.length)
 		const annotationMarks = Array.from({ length: text.length }, () => [])
 
-		matchIndexes(text, keyword, true).forEach((index) => {
-			for (let cursor = index; cursor < index + keyword.length; cursor += 1) {
+		matchIndexes(text, keyword, true).forEach(({ start, end }) => {
+			for (let cursor = start; cursor < end; cursor += 1) {
 				searchMarks[cursor] = 1
 			}
 		})
@@ -600,7 +698,22 @@
 		draggingFontSize.value = Math.round(event.detail.value)
 	}
 
-	function handleFontChange(event) {
+	let paginationVersion = 0
+
+	// 排版参数可能要等 App 端实测，期间如果又改了字号，只保留最后一次的结果。
+	async function repaginate(readingOffset, progress) {
+		const version = ++paginationVersion
+		const limits = await getPageLimits()
+		if (version !== paginationVersion) return false
+		pages.value = paginateBook(fullContent.value, bookTitle.value, {
+			...limits,
+			chapters: activeBook.value?.chapters || []
+		})
+		currentPageIndex.value = restorePageIndex(readingOffset, progress)
+		return true
+	}
+
+	async function handleFontChange(event) {
 		const nextFontSize = Math.round(event.detail.value)
 		const progress = readingProgress.value
 		const readingOffset = readingAnchor ?? currentOffset.value
@@ -610,12 +723,7 @@
 		clearSelectedRange()
 		readerFontSize.value = nextFontSize
 		uni.setStorageSync(FONT_SIZE_STORAGE_KEY, nextFontSize)
-		pages.value = paginateBook(fullContent.value, bookTitle.value, {
-			...getPageLimits(),
-			chapters: activeBook.value?.chapters || []
-		})
-		currentPageIndex.value = restorePageIndex(readingOffset, progress)
-		saveProgress()
+		if (await repaginate(readingOffset, progress)) saveProgress()
 	}
 
 	function openSearch() {
@@ -651,25 +759,32 @@
 		isCommunityVisible.value = true
 	}
 
+	// 选中的文字里，段落内的折行也是换行符，原文里没有，所以换行符按"可有可无"匹配。
 	function closestQuoteRange(quote) {
 		const source = normalizedContent.value
 		if (!quote || !source) return null
-		let index = source.indexOf(quote)
-		let bestIndex = -1
+		const pattern = new RegExp(
+			quote
+				.replace(/\n+/g, '\n')
+				.split('\n')
+				.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+				.join('\n?'),
+			'g'
+		)
+		let best = null
 		let bestDistance = Number.POSITIVE_INFINITY
-		while (index !== -1) {
-			const distance = Math.abs(index - currentOffset.value)
+		for (const match of source.matchAll(pattern)) {
+			const distance = Math.abs(match.index - currentOffset.value)
 			if (distance < bestDistance) {
-				bestIndex = index
+				best = match
 				bestDistance = distance
 			}
-			index = source.indexOf(quote, index + 1)
 		}
-		if (bestIndex < 0) return null
+		if (!best) return null
 		return {
-			startOffset: bestIndex,
-			endOffset: bestIndex + quote.length,
-			quote: source.slice(bestIndex, bestIndex + quote.length)
+			startOffset: best.index,
+			endOffset: best.index + best[0].length,
+			quote: best[0]
 		}
 	}
 
@@ -725,11 +840,13 @@
 	function handleRenderedCopy(payload) {
 		const text = cleanSelectedText(payload?.text)
 		if (!text) return
-		uni.setClipboardData({ data: text })
+		// 复制原文，去掉分页时在段落内插入的折行。
+		uni.setClipboardData({ data: closestQuoteRange(text)?.quote || text })
 	}
 	if (readerComponentInstance) {
 		readerComponentInstance.ctx.receiveRenderedSelection = handleRenderedSelectionAction
 		readerComponentInstance.ctx.receiveRenderedCopy = handleRenderedCopy
+		readerComponentInstance.ctx.receiveRenderedLayout = receiveRenderedLayout
 	}
 
 	defineExpose({ handleRenderedSelection, handleRenderedSelectionAction })
@@ -873,9 +990,8 @@
 
 		uni.hideKeyboard()
 
-		const normalizedKeyword = keyword.toLocaleLowerCase()
 		searchMatches.value = pages.value.reduce((matches, page, pageIndex) => {
-			if (page.content.toLocaleLowerCase().includes(normalizedKeyword)) {
+			if (matchIndexes(page.content, keyword, true).length) {
 				matches.push(pageIndex)
 			}
 
@@ -913,11 +1029,9 @@
 			activeBookId.value = book.id
 			const content = await readBookContent(book)
 			fullContent.value = content
-				pages.value = paginateBook(content, book.title, {
-					...getPageLimits(),
-					chapters: book.chapters || []
-				})
-			currentPageIndex.value = restorePageIndex(book.readingOffset, book.progress)
+			// App 端要在正文区域渲染出来后才能实测排版，所以先结束加载状态再分页。
+			isLoading.value = false
+			await repaginate(book.readingOffset, book.progress)
 			readingAnchor = Number.isInteger(book.readingOffset) ? book.readingOffset : null
 			if (book.sharing) {
 				refreshCommunity()
@@ -1012,6 +1126,79 @@
 					this.clearCustomSelection()
 					const selection = window.getSelection && window.getSelection()
 					if (selection) selection.removeAllRanges()
+				},
+
+				// ---------- 排版实测（供 App 端分页） ----------
+
+				onLayoutRequest(request) {
+					if (!request || !request.id) return
+					// 字号变化和这次请求在同一批更新里下发，等样式生效后再量。
+					setTimeout(() => {
+						const layout = this.measureLayout(request)
+						if (layout) this.$ownerInstance.callMethod('receiveRenderedLayout', layout)
+					}, 60)
+				},
+				// 在正文同样的字体、字号下，量出正文区域的宽高、行高和每个字符的宽度（单位 px）。
+				measureLayout(request) {
+					const area = document.querySelector('.reading-area')
+					const article = area && area.querySelector('.article')
+					const content = area && area.querySelector('.book-content')
+					if (!article || !content) return null
+
+					const contentStyle = window.getComputedStyle(content)
+					const probe = document.createElement('div')
+					;[
+						'font-family', 'font-size', 'font-weight', 'font-style', 'line-height',
+						'letter-spacing', 'word-spacing', 'text-spacing-trim', 'text-autospace',
+						'font-kerning', 'font-feature-settings'
+					].forEach((name) => {
+						const value = contentStyle.getPropertyValue(name)
+						if (value) probe.style.setProperty(name, value)
+					})
+					probe.style.position = 'absolute'
+					probe.style.left = '0'
+					probe.style.top = '0'
+					probe.style.visibility = 'hidden'
+					probe.style.pointerEvents = 'none'
+					probe.style.whiteSpace = 'pre'
+
+					const LINE_SAMPLES = 20
+					const lines = document.createElement('div')
+					lines.textContent = Array(LINE_SAMPLES).fill('中').join('\n')
+					probe.appendChild(lines)
+
+					const row = document.createElement('div')
+					const chars = Array.from(request.chars || '')
+					const spans = chars.map((char) => {
+						const span = document.createElement('span')
+						span.textContent = char
+						row.appendChild(span)
+						return span
+					})
+					probe.appendChild(row)
+					article.appendChild(probe)
+
+					const widths = spans.map((span) => Math.round(span.getBoundingClientRect().width * 1000) / 1000)
+					const lineHeight = lines.getBoundingClientRect().height / LINE_SAMPLES
+					article.removeChild(probe)
+
+					const areaStyle = window.getComputedStyle(area)
+					const areaRect = area.getBoundingClientRect()
+					const contentTop = areaRect.top + parseFloat(areaStyle.paddingTop || 0)
+					const contentBottom = areaRect.bottom - parseFloat(areaStyle.paddingBottom || 0)
+					const articleRect = article.getBoundingClientRect()
+					// 首页上方有书名区，此时正文起点到内容区顶部的距离就是书名区占用的高度。
+					const heading = area.querySelector('.chapter-heading')
+
+					return {
+						id: request.id,
+						fontSize: parseFloat(contentStyle.fontSize),
+						lineHeight,
+						lineWidth: articleRect.width,
+						pageHeight: contentBottom - contentTop,
+						headingHeight: heading ? articleRect.top - contentTop : 0,
+						widths
+					}
 				},
 
 				// ---------- App：自定义选区 ----------
@@ -1720,9 +1907,11 @@
 		font-family: "Songti SC", "STSong", serif;
 		font-size: 32rpx;
 		line-height: 1.75;
-		text-align: justify;
-		white-space: pre-wrap;
-		word-break: break-all;
+		/* 折行已由分页结果用换行符给出，浏览器不能再自动折行，否则页尾会多出一行。 */
+		white-space: pre;
+		/* 新版 WebView 默认会压缩相邻全角标点、在中英文之间加空隙，分页按逐字宽度累加，这里都关掉。 */
+		text-spacing-trim: space-all;
+		text-autospace: no-autospace;
 		user-select: text;
 	}
 

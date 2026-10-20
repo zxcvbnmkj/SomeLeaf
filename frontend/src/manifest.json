@@ -2,7 +2,7 @@
     "name" : "SomeLeaf",
     "appid" : "__UNI__58C95E0",
     "description" : "三叶，一款轻量级多平台阅读软件",
-    "versionName" : "0.1.5",
+    "versionName" : "0.1.6",
     "versionCode" : "10",
     "transformPx" : false,
     "vueVersion" : "3",
